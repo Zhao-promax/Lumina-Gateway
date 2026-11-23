@@ -1,0 +1,46 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: lumina-gateway
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+gateway:
+  auth:
+    enabled: true
+    # 签名时间戳允许偏差（秒）
+    timestamp-window-seconds: 300
+    apps:
+      - app-key: "demo-app"
+        app-secret: "demo-secret-please-change"
+        tenant: "demo"
+  routing:
+    default-tag: "default"
+    routes:
+      - tag: "default"
+        provider: "deepseek"
+        model: "deepseek-chat"
+      - tag: "qwen"
+        provider: "qwen"
+        model: "qwen-plus"
+  providers:
+    deepseek:
+      base-url: "https://api.deepseek.com"
+      api-key: "${DEEPSEEK_API_KEY:}"
+      enabled: true
+    qwen:
+      base-url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api-key: "${QWEN_API_KEY:}"
+      enabled: true
