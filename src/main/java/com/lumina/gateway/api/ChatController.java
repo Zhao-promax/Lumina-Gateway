@@ -3,6 +3,7 @@ package com.lumina.gateway.api;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.gateway.api.dto.ChatRequest;
+import com.lumina.gateway.auth.AuthContext;
 import com.lumina.gateway.exception.GatewayException;
 import com.lumina.gateway.service.ChatService;
 import jakarta.validation.Valid;
@@ -39,15 +40,17 @@ public class ChatController {
                            @RequestHeader(value = "X-Route-Tag", required = false) String routeTag,
                            ServerWebExchange exchange) {
         ServerHttpResponse response = exchange.getResponse();
+        String tenant = exchange.getAttribute(AuthContext.ATTR_TENANT);
+        String appKey = exchange.getAttribute(AuthContext.ATTR_APP_KEY);
 
         if (Boolean.TRUE.equals(request.getStream())) {
             response.getHeaders().setContentType(MediaType.TEXT_EVENT_STREAM);
-            Flux<Mono<DataBuffer>> body = chatService.stream(request, routeTag)
+            Flux<Mono<DataBuffer>> body = chatService.stream(request, routeTag, tenant, appKey)
                     .map(frame -> Mono.just(response.bufferFactory().wrap(frame.getBytes(StandardCharsets.UTF_8))));
             return response.writeAndFlushWith(body);
         }
 
-        return chatService.complete(request, routeTag)
+        return chatService.complete(request, routeTag, tenant, appKey)
                 .flatMap(resp -> writeJson(response, resp));
     }
 

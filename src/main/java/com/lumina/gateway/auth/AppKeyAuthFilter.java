@@ -98,6 +98,10 @@ public class AppKeyAuthFilter implements WebFilter {
             return unauthorized(exchange, "invalid_signature", "invalid signature");
         }
 
+        // 鉴权通过后，写入租户/AppKey 上下文供限流、审计等下游使用
+        exchange.getAttributes().put(AuthContext.ATTR_APP_KEY, app.getAppKey());
+        exchange.getAttributes().put(AuthContext.ATTR_TENANT, app.getTenant());
+
         return chain.filter(exchange);
     }
 

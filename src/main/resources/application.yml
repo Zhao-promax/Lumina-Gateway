@@ -16,11 +16,14 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # Redis 为可选依赖（默认内存限流），未部署 Redis 时禁用其健康检查，避免整体状态 DOWN
+    redis:
+      enabled: false
 
 gateway:
   auth:
     enabled: true
-    # 签名时间戳允许偏差（秒）
     timestamp-window-seconds: 300
     apps:
       - app-key: "demo-app"
@@ -28,13 +31,43 @@ gateway:
         tenant: "demo"
   routing:
     default-tag: "default"
+    downgrade-enabled: false
     routes:
       - tag: "default"
-        provider: "deepseek"
-        model: "deepseek-chat"
+        models:
+          - provider: "deepseek"
+            model: "deepseek-chat"
+            price: 0.002
+            weight: 100
+          - provider: "qwen"
+            model: "qwen-plus"
+            price: 0.0008
+            weight: 0
       - tag: "qwen"
-        provider: "qwen"
-        model: "qwen-plus"
+        models:
+          - provider: "qwen"
+            model: "qwen-plus"
+            price: 0.0008
+            weight: 100
+  resilience:
+    circuit-breaker:
+      failure-rate-threshold: 50
+      sliding-window-size: 10
+      minimum-number-of-calls: 5
+      wait-duration-in-open-state-ms: 10000
+    timeout-ms: 30000
+    retry:
+      max-attempts: 2
+      wait-ms: 200
+  rate-limit:
+    enabled: true
+    backend: "memory"          # memory | redis（redis 需 spring.data.redis 配置）
+    permits-per-second: 10
+  nacos:
+    enabled: false             # 启用后从 Nacos 热更路由规则
+    server-addr: "localhost:8848"
+    data-id: "lumina-gateway-routing"
+    group: "DEFAULT_GROUP"
   providers:
     deepseek:
       base-url: "https://api.deepseek.com"
