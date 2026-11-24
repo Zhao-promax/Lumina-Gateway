@@ -13,6 +13,7 @@ Java 17 · Spring Boot 3.2 · Spring WebFlux（Reactor）· Resilience4j · Redi
 - **阶段 1（底座 MVP）**：OpenAI 兼容接口、SPI 适配器、SSE 流式透传、断连取消、标签路由、AppKey 签名鉴权
 - **阶段 2（可靠性治理）**：Resilience4j 熔断/超时/重试、主备故障转移、高价→廉价降级、多维限流、Nacos 动态热更（可选）
 - **阶段 3（成本管控）**：Token 用量统计、Redis 原子预算配额（预扣+结算）、超额拦截（402）、精确 Prompt 哈希缓存、Embedding 语义缓存（可选）
+- **阶段 4（可观测与安全审计）**：Micrometer 指标（Prometheus）、异步审计（RabbitMQ 可选）、密钥加密与轮换、内容风控、Docker/K8s 交付
 
 ## 构建与运行
 
@@ -41,6 +42,8 @@ export QWEN_API_KEY=sk-xxxx
 | `gateway.budget.*` | 预算配额（日/总限额、后端、默认完成 Token 估算），超额返回 402 |
 | `gateway.cache.exact-*` | 精确 Prompt 哈希缓存（仅 temperature=0 命中） |
 | `gateway.cache.semantic-*` | Embedding 语义缓存（需提供 EmbeddingProvider Bean） |
+| `gateway.moderation.*` | 前置内容风控（敏感词过滤，命中返回 400） |
+| `gateway.audit.mq-enabled` | 异步审计投递 RabbitMQ（默认 false，仅结构化日志） |
 | `gateway.nacos.enabled` | 启用后路由规则从 Nacos 热更（默认 false） |
 
 ## 调用方式
@@ -84,8 +87,23 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 - **流式故障转移**：仅当「首字节产出前」失败才切换，已产出则保持原流
 - **降级**：开启 `downgrade-enabled` 后按价格升序选择候选
 
+## 可观测性
+
+- **指标**：`/actuator/prometheus`（Prometheus 抓取），含请求量、P50/P95/P99 延迟、Token、缓存命中、断连取消、错误率
+- **审计**：结构化日志（logger 名 `AUDIT`）+ 可选 RabbitMQ 异步投递（`gateway.audit.mq-enabled=true`）
+- **告警**：见 `deploy/prometheus-alerts.yml`
+- **链路追踪**：SkyWalking 通过 `-javaagent` 注入（见 Dockerfile 注释）；WebFlux 场景可优先 OTel/Micrometer Tracing
+
+## 部署
+
+- `Dockerfile`：多阶段构建
+- `deploy/k8s.yaml`：Deployment + Service + HPA（含健康/就绪探针、密钥注入）
+- `deploy/application-prod.yml`：生产配置（Redis/RabbitMQ/Nacos 后端）
+- `deploy/schema.sql`：审计日志表结构
+
 ## 已知边界
 
-- 厂商密钥与 AppKey 暂存于配置，未加密（阶段 4）
+- 配置中的厂商密钥/AppSecret 仍为明文；已提供 `SecretCipher`（AES-GCM）与 `KeyRotationService`，生产建议接 KMS 或将密文写入配置
 - Nacos 热更需部署 Nacos Server（`gateway.nacos.enabled=true`）
+- RabbitMQ 审计需部署 RabbitMQ（`gateway.audit.mq-enabled=true`）
 - 限流使用令牌桶；Redis 后端异常时「失败放行」

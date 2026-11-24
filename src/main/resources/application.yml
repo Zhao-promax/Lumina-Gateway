@@ -11,15 +11,20 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:
         enabled: true
   health:
-    # Redis 为可选依赖（默认内存限流），未部署 Redis 时禁用其健康检查，避免整体状态 DOWN
+    # Redis / RabbitMQ 为可选依赖（默认内存限流 / 仅日志审计），未部署时禁用健康检查，避免整体状态 DOWN
     redis:
       enabled: false
+    rabbit:
+      enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 gateway:
   auth:
@@ -74,6 +79,12 @@ gateway:
     exact-ttl-seconds: 3600
     semantic-enabled: false    # 需 EmbeddingProvider Bean + 可选 Redis Stack
     semantic-threshold: 0.9
+  moderation:
+    enabled: true
+    words: [ "违禁词A", "违禁词B" ]
+  audit:
+    mq-enabled: false           # true 时异步投递到 RabbitMQ（需部署 RabbitMQ）
+    queue: "gateway.audit"
   nacos:
     enabled: false             # 启用后从 Nacos 热更路由规则
     server-addr: "localhost:8848"

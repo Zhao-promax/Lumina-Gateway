@@ -23,6 +23,8 @@ public class GatewayProperties {
     private Nacos nacos = new Nacos();
     private Budget budget = new Budget();
     private Cache cache = new Cache();
+    private Moderation moderation = new Moderation();
+    private Audit audit = new Audit();
     private Map<String, ProviderConfig> providers = new HashMap<>();
 
     public Auth getAuth() {
@@ -79,6 +81,22 @@ public class GatewayProperties {
 
     public void setCache(Cache cache) {
         this.cache = cache;
+    }
+
+    public Moderation getModeration() {
+        return moderation;
+    }
+
+    public void setModeration(Moderation moderation) {
+        this.moderation = moderation;
+    }
+
+    public Audit getAudit() {
+        return audit;
+    }
+
+    public void setAudit(Audit audit) {
+        this.audit = audit;
     }
 
     public Map<String, ProviderConfig> getProviders() {
@@ -496,6 +514,52 @@ public class GatewayProperties {
 
         public void setSemanticThreshold(double semanticThreshold) {
             this.semanticThreshold = semanticThreshold;
+        }
+    }
+
+    // ===== 内容风控 =====
+
+    public static class Moderation {
+        private boolean enabled = false;
+        private List<String> words = new ArrayList<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getWords() {
+            return words;
+        }
+
+        public void setWords(List<String> words) {
+            this.words = words;
+        }
+    }
+
+    // ===== 审计 =====
+
+    public static class Audit {
+        private boolean mqEnabled = false;
+        private String queue = "gateway.audit";
+
+        public boolean isMqEnabled() {
+            return mqEnabled;
+        }
+
+        public void setMqEnabled(boolean mqEnabled) {
+            this.mqEnabled = mqEnabled;
+        }
+
+        public String getQueue() {
+            return queue;
+        }
+
+        public void setQueue(String queue) {
+            this.queue = queue;
         }
     }
 

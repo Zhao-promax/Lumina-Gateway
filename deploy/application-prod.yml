@@ -1,0 +1,29 @@
+# 生产配置：Redis / RabbitMQ / Nacos 后端启用（通过环境变量注入地址）
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: 6379
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: 5672
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+
+management:
+  health:
+    redis:
+      enabled: true
+    rabbit:
+      enabled: true
+
+gateway:
+  rate-limit:
+    backend: redis
+  budget:
+    backend: redis
+  audit:
+    mq-enabled: true
+  nacos:
+    enabled: true
+    server-addr: ${NACOS_ADDR:nacos:8848}

@@ -5,11 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.gateway.api.dto.ChatChunk;
 import com.lumina.gateway.api.dto.ChatRequest;
 import com.lumina.gateway.api.dto.ChatResponse;
+import com.lumina.gateway.audit.AuditEvent;
 import com.lumina.gateway.budget.BudgetService;
 import com.lumina.gateway.cache.ExactCacheService;
 import com.lumina.gateway.cache.SemanticCacheService;
 import com.lumina.gateway.config.GatewayProperties;
 import com.lumina.gateway.exception.GatewayException;
+import com.lumina.gateway.metrics.GatewayObserver;
+import com.lumina.gateway.moderation.ContentModerationService;
 import com.lumina.gateway.provider.ProviderRegistry;
 import com.lumina.gateway.provider.spi.ModelProvider;
 import com.lumina.gateway.ratelimit.RateLimiter;
@@ -17,6 +20,7 @@ import com.lumina.gateway.resilience.ResilienceManager;
 import com.lumina.gateway.routing.RouteResolver;
 import com.lumina.gateway.routing.RouteTarget;
 import com.lumina.gateway.usage.TokenEstimator;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -27,11 +31,12 @@ import reactor.core.publisher.SignalType;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 网关编排：路由 → 限流 → 预算预扣 → 双层缓存 → 主备故障转移/降级 → 结算 → 标准化。
+ * 网关编排：路由 → 限流 → 内容风控 → 预算预扣 → 双层缓存 → 主备故障转移/降级 → 结算 → 标准化。
  */
 @Service
 public class ChatService {
@@ -48,6 +53,8 @@ public class ChatService {
     private final BudgetService budgetService;
     private final ExactCacheService exactCache;
     private final Optional<SemanticCacheService> semanticCache;
+    private final GatewayObserver observer;
+    private final ContentModerationService moderationService;
     private final ObjectMapper objectMapper;
 
     public ChatService(ProviderRegistry registry,
@@ -58,6 +65,8 @@ public class ChatService {
                        BudgetService budgetService,
                        ExactCacheService exactCache,
                        Optional<SemanticCacheService> semanticCache,
+                       GatewayObserver observer,
+                       ContentModerationService moderationService,
                        ObjectMapper objectMapper) {
         this.registry = registry;
         this.router = router;
@@ -67,18 +76,27 @@ public class ChatService {
         this.budgetService = budgetService;
         this.exactCache = exactCache;
         this.semanticCache = semanticCache;
+        this.observer = observer;
+        this.moderationService = moderationService;
         this.objectMapper = objectMapper;
     }
 
     // ===== 非流式 =====
 
     public Mono<ChatResponse> complete(ChatRequest request, String routeTag, String tenant, String appKey) {
+        String traceId = UUID.randomUUID().toString();
+        Timer.Sample sample = observer.start();
+        long startMs = System.currentTimeMillis();
+
         List<RouteTarget> candidates = router.resolveCandidates(routeTag);
         if (candidates.isEmpty()) {
             return Mono.error(new GatewayException(HttpStatus.BAD_REQUEST, "no_route", "no candidates"));
         }
+        String provider = candidates.get(0).provider();
         String model = candidates.get(0).model();
+
         return rateLimitCheck(candidates, tenant, appKey)
+                .then(moderationCheck(request))
                 .then(Mono.defer(() -> {
                     long estimate = TokenEstimator.estimate(request, properties.getBudget().getDefaultCompletionTokens());
                     return reserve(tenant, appKey, estimate)
@@ -86,7 +104,19 @@ public class ChatService {
                                     ? cachedOrCall(candidates, request, tenant, appKey, model, estimate)
                                             .onErrorResume(e -> refund(tenant, appKey, estimate, e))
                                     : Mono.error(budgetExceeded()));
-                }));
+                }))
+                .doOnSuccess(resp -> {
+                    int prompt = resp.usage() != null ? resp.usage().promptTokens() : 0;
+                    int completion = resp.usage() != null ? resp.usage().completionTokens() : 0;
+                    observer.recordSuccess(sample, new AuditEvent(traceId, tenant, appKey, provider, model, false,
+                            prompt, completion, System.currentTimeMillis() - startMs, "ok", false,
+                            System.currentTimeMillis()));
+                })
+                .doOnError(e -> {
+                    String type = (e instanceof GatewayException ge) ? ge.getType() : "internal_error";
+                    observer.recordError(sample, new AuditEvent(traceId, tenant, appKey, provider, model, false,
+                            0, 0, System.currentTimeMillis() - startMs, type, false, System.currentTimeMillis()), type);
+                });
     }
 
     private Mono<ChatResponse> cachedOrCall(List<RouteTarget> candidates, ChatRequest request,
@@ -97,8 +127,10 @@ public class ChatService {
             ChatResponse cached = exactCache.get(key);
             if (cached != null) {
                 log.info("exact cache hit, key={}", key);
+                observer.recordCache("exact", true);
                 return settle(tenant, appKey, -estimate).thenReturn(cached);
             }
+            observer.recordCache("exact", false);
             return failoverMono(candidates, request)
                     .flatMap(resp -> {
                         exactCache.put(key, resp);
@@ -112,8 +144,10 @@ public class ChatService {
             Optional<ChatResponse> hit = sc.find(query, model);
             if (hit.isPresent()) {
                 log.info("semantic cache hit, model={}", model);
+                observer.recordCache("semantic", true);
                 return settle(tenant, appKey, -estimate).thenReturn(hit.get());
             }
+            observer.recordCache("semantic", false);
             return failoverMono(candidates, request)
                     .flatMap(resp -> {
                         sc.put(query, model, resp);
@@ -128,18 +162,39 @@ public class ChatService {
     // ===== 流式 =====
 
     public Flux<String> stream(ChatRequest request, String routeTag, String tenant, String appKey) {
+        String traceId = UUID.randomUUID().toString();
+        Timer.Sample sample = observer.start();
+        long startMs = System.currentTimeMillis();
+
         List<RouteTarget> candidates = router.resolveCandidates(routeTag);
         if (candidates.isEmpty()) {
             return Flux.error(new GatewayException(HttpStatus.BAD_REQUEST, "no_route", "no candidates"));
         }
+        String provider = candidates.get(0).provider();
+        String model = candidates.get(0).model();
+
         return rateLimitCheck(candidates, tenant, appKey)
+                .then(moderationCheck(request))
                 .thenMany(Flux.defer(() -> {
                     long estimate = TokenEstimator.estimate(request, properties.getBudget().getDefaultCompletionTokens());
                     return reserve(tenant, appKey, estimate)
                             .flatMapMany(reserved -> reserved
                                     ? streamWithSettle(candidates, request, tenant, appKey, estimate)
                                     : Flux.error(budgetExceeded()));
-                }));
+                }))
+                .doOnCancel(() -> {
+                    log.info("client disconnected, upstream stream cancelled");
+                    observer.recordDisconnect();
+                })
+                .doFinally(sig -> {
+                    if (sig == SignalType.CANCEL) {
+                        return;
+                    }
+                    String status = (sig == SignalType.ON_ERROR) ? "error" : "ok";
+                    String type = (sig == SignalType.ON_ERROR) ? "stream_error" : "ok";
+                    observer.recordStream(sample, new AuditEvent(traceId, tenant, appKey, provider, model, true,
+                            0, 0, System.currentTimeMillis() - startMs, type, false, System.currentTimeMillis()), status);
+                });
     }
 
     private Flux<String> streamWithSettle(List<RouteTarget> candidates, ChatRequest request,
@@ -160,6 +215,7 @@ public class ChatService {
                     settle(tenant, appKey, delta)
                             .subscribe(v -> {
                             }, e -> log.warn("stream budget settle failed", e));
+                    observer.recordStreamTokens(Math.max(0, actual.get()));
                 });
     }
 
@@ -201,7 +257,7 @@ public class ChatService {
                 });
     }
 
-    // ===== 限流 / 预算 =====
+    // ===== 限流 / 风控 / 预算 =====
 
     private Mono<Void> rateLimitCheck(List<RouteTarget> candidates, String tenant, String appKey) {
         if (!properties.getRateLimit().isEnabled() || candidates.isEmpty()) {
@@ -212,6 +268,15 @@ public class ChatService {
                         ? Mono.empty()
                         : Mono.error(new GatewayException(HttpStatus.TOO_MANY_REQUESTS,
                                 "rate_limit_error", "rate limit exceeded")));
+    }
+
+    private Mono<Void> moderationCheck(ChatRequest request) {
+        Optional<String> violation = moderationService.detect(lastUserContent(request));
+        if (violation.isPresent()) {
+            return Mono.error(new GatewayException(HttpStatus.BAD_REQUEST,
+                    "content_policy_violation", violation.get()));
+        }
+        return Mono.empty();
     }
 
     private Mono<Boolean> reserve(String tenant, String appKey, long tokens) {
