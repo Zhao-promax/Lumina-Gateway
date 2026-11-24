@@ -5,7 +5,7 @@
     {
       "tag": "default",
       "models": [
-        { "provider": "deepseek", "model": "deepseek-chat", "price": 0.002, "weight": 100 },
+        { "provider": "deepseek", "model": "deepseek-v4-pro", "price": 0.002, "weight": 100 },
         { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 0 }
       ]
     },

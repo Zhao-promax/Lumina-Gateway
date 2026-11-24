@@ -44,7 +44,7 @@ gateway:
       - tag: "default"
         models:
           - provider: "deepseek"
-            model: "deepseek-chat"
+            model: "deepseek-v4-pro"
             price: 0.002
             weight: 100
           - provider: "qwen"
