@@ -9,6 +9,7 @@ import com.lumina.gateway.api.dto.ChunkChoice;
 import com.lumina.gateway.api.dto.ChunkDelta;
 import com.lumina.gateway.api.dto.Usage;
 import com.lumina.gateway.audit.AuditService;
+import com.lumina.gateway.budget.BudgetWarningService;
 import com.lumina.gateway.budget.InMemoryBudgetService;
 import com.lumina.gateway.cache.ExactCacheService;
 import com.lumina.gateway.metrics.GatewayMetrics;
@@ -75,14 +76,17 @@ class ChatServiceTest {
         registry.register(new StubProvider("deepseek", true, true, "ignored"));
         registry.register(new StubProvider("qwen", false, false, "world"));
 
+        GatewayMetrics metrics = new GatewayMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        InMemoryBudgetService budgetService = new InMemoryBudgetService(Long.MAX_VALUE, Long.MAX_VALUE);
         RouteResolver resolver = new RouteResolver(props);
-        ResilienceManager resilience = new ResilienceManager(props);
-        GatewayObserver observer = new GatewayObserver(
-                new GatewayMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+        ResilienceManager resilience = new ResilienceManager(props, metrics);
+        GatewayObserver observer = new GatewayObserver(metrics,
                 new AuditService(props, java.util.Optional.empty(), new ObjectMapper()));
+        BudgetWarningService budgetWarning = new BudgetWarningService(budgetService, props, metrics);
         return new ChatService(registry, resolver, resilience, props,
                 new InMemoryRateLimiter(1000),
-                new InMemoryBudgetService(Long.MAX_VALUE, Long.MAX_VALUE),
+                budgetService,
+                budgetWarning,
                 new ExactCacheService(props),
                 java.util.Optional.empty(),
                 observer,

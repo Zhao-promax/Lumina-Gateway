@@ -58,4 +58,12 @@ public class GatewayMetrics {
     public void recordError(String type) {
         Counter.builder("gateway.errors").tag("type", type).register(registry).increment();
     }
+
+    public void recordCircuitOpen(String circuit) {
+        Counter.builder("gateway.circuitbreaker.opens").tag("circuit", circuit).register(registry).increment();
+    }
+
+    public void recordBudgetWarning() {
+        Counter.builder("gateway.budget.warnings").register(registry).increment();
+    }
 }

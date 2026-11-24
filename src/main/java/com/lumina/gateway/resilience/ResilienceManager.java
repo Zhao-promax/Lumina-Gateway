@@ -1,6 +1,7 @@
 package com.lumina.gateway.resilience;
 
 import com.lumina.gateway.config.GatewayProperties;
+import com.lumina.gateway.metrics.GatewayMetrics;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.retry.Retry;
@@ -28,12 +29,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ResilienceManager {
 
     private final GatewayProperties properties;
+    private final GatewayMetrics metrics;
     private final Map<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
     private volatile Retry retry;
     private volatile TimeLimiter timeLimiter;
 
-    public ResilienceManager(GatewayProperties properties) {
+    public ResilienceManager(GatewayProperties properties, GatewayMetrics metrics) {
         this.properties = properties;
+        this.metrics = metrics;
         this.retry = buildRetry();
         this.timeLimiter = buildTimeLimiter();
     }
@@ -68,7 +71,16 @@ public class ResilienceManager {
                 .minimumNumberOfCalls(cb.getMinimumNumberOfCalls())
                 .waitDurationInOpenState(Duration.ofMillis(cb.getWaitDurationInOpenStateMs()))
                 .build();
-        return CircuitBreaker.of(name, config);
+        CircuitBreaker circuitBreaker = CircuitBreaker.of(name, config);
+        // 熔断打开时埋点计数（熔断触发次数）
+        circuitBreaker.getEventPublisher().onStateTransition(event -> {
+            CircuitBreaker.StateTransition t = event.getStateTransition();
+            if (t == CircuitBreaker.StateTransition.CLOSED_TO_OPEN
+                    || t == CircuitBreaker.StateTransition.HALF_OPEN_TO_OPEN) {
+                metrics.recordCircuitOpen(name);
+            }
+        });
+        return circuitBreaker;
     }
 
     private Retry buildRetry() {

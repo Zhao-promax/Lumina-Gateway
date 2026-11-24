@@ -1,9 +1,12 @@
 server:
   port: 8080
+  shutdown: graceful
 
 spring:
   application:
     name: lumina-gateway
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   jackson:
     default-property-inclusion: non_null
 
@@ -80,6 +83,11 @@ gateway:
     daily-limit: 100000
     total-limit: 1000000
     default-completion-tokens: 512
+    warn-ratio: 0.8            # 用量达 80% 触发预警
+    downgrade-threshold-ratio: 0.2  # 剩余预算低于 20% 触发降级
+  sse:
+    buffer-size: 256           # 背压分片缓冲上限
+    idle-timeout-ms: 60000     # 闲置流超时回收
   cache:
     exact-enabled: true
     exact-ttl-seconds: 3600

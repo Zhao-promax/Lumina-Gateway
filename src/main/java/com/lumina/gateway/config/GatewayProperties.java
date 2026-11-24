@@ -26,6 +26,7 @@ public class GatewayProperties {
     private Moderation moderation = new Moderation();
     private Audit audit = new Audit();
     private Mock mock = new Mock();
+    private Sse sse = new Sse();
     private Map<String, ProviderConfig> providers = new HashMap<>();
 
     public Auth getAuth() {
@@ -106,6 +107,14 @@ public class GatewayProperties {
 
     public void setMock(Mock mock) {
         this.mock = mock;
+    }
+
+    public Sse getSse() {
+        return sse;
+    }
+
+    public void setSse(Sse sse) {
+        this.sse = sse;
     }
 
     public Map<String, ProviderConfig> getProviders() {
@@ -443,6 +452,8 @@ public class GatewayProperties {
         private long dailyLimit = 100000;
         private long totalLimit = 1000000;
         private long defaultCompletionTokens = 512;
+        private double warnRatio = 0.8;              // 用量达到该比例触发额度预警
+        private double downgradeThresholdRatio = 0.2; // 剩余预算低于该比例触发降级
 
         public boolean isEnabled() {
             return enabled;
@@ -482,6 +493,22 @@ public class GatewayProperties {
 
         public void setDefaultCompletionTokens(long defaultCompletionTokens) {
             this.defaultCompletionTokens = defaultCompletionTokens;
+        }
+
+        public double getWarnRatio() {
+            return warnRatio;
+        }
+
+        public void setWarnRatio(double warnRatio) {
+            this.warnRatio = warnRatio;
+        }
+
+        public double getDowngradeThresholdRatio() {
+            return downgradeThresholdRatio;
+        }
+
+        public void setDowngradeThresholdRatio(double downgradeThresholdRatio) {
+            this.downgradeThresholdRatio = downgradeThresholdRatio;
         }
     }
 
@@ -601,6 +628,29 @@ public class GatewayProperties {
 
         public void setChunkDelayMs(long chunkDelayMs) {
             this.chunkDelayMs = chunkDelayMs;
+        }
+    }
+
+    // ===== SSE 流治理 =====
+
+    public static class Sse {
+        private int bufferSize = 256;        // 背压分片缓冲上限
+        private long idleTimeoutMs = 60000;   // 闲置流超时回收
+
+        public int getBufferSize() {
+            return bufferSize;
+        }
+
+        public void setBufferSize(int bufferSize) {
+            this.bufferSize = bufferSize;
+        }
+
+        public long getIdleTimeoutMs() {
+            return idleTimeoutMs;
+        }
+
+        public void setIdleTimeoutMs(long idleTimeoutMs) {
+            this.idleTimeoutMs = idleTimeoutMs;
         }
     }
 

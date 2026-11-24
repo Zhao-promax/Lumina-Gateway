@@ -33,3 +33,19 @@ groups:
           severity: info
         annotations:
           summary: "缓存命中率低于 20%（10 分钟）"
+
+      - alert: GatewayCircuitOpened
+        expr: increase(gateway_circuitbreaker_opens_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "下游模型熔断器触发打开"
+
+      - alert: GatewayBudgetWarning
+        expr: increase(gateway_budget_warnings_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "租户/应用预算用量达到预警阈值"
