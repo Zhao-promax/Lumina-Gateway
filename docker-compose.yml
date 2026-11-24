@@ -120,10 +120,6 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
-      # SkyWalking 追踪（启用时取消注释，并挂载 agent 目录）
-      # JAVA_TOOL_OPTIONS: "-javaagent:/opt/skywalking/skywalking-agent.jar"
-      # SW_AGENT_NAME: lumina-gateway
-      # SW_AGENT_COLLECTOR_BACKEND_SERVICES: skywalking-oap:11800
     ports:
       - "8080:8080"
     restart: unless-stopped
