@@ -12,12 +12,18 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class InMemoryBudgetService implements BudgetService {
 
-    private final long dailyLimit;
-    private final long totalLimit;
+    private volatile long dailyLimit;
+    private volatile long totalLimit;
     private final ConcurrentHashMap<String, Long> dailyUsed = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> totalUsed = new ConcurrentHashMap<>();
 
     public InMemoryBudgetService(long dailyLimit, long totalLimit) {
+        this.dailyLimit = dailyLimit;
+        this.totalLimit = totalLimit;
+    }
+
+    @Override
+    public void updateLimits(long dailyLimit, long totalLimit) {
         this.dailyLimit = dailyLimit;
         this.totalLimit = totalLimit;
     }

@@ -42,4 +42,16 @@ class SecretCipherTest {
         String reEncrypted = rotation.reEncrypt(encrypted, oldCipher, newCipher);
         assertThat(newCipher.decrypt(reEncrypted)).isEqualTo("secret");
     }
+
+    @Test
+    void decryptsEncFormatValue() {
+        SecretCipher cipher = new SecretCipher(new byte[32]);
+        String encrypted = cipher.encrypt("sk-real-key");
+        String encValue = "ENC(" + encrypted + ")";
+
+        assertThat(SecretCipher.isEncrypted(encValue)).isTrue();
+        assertThat(SecretCipher.isEncrypted("sk-plain")).isFalse();
+        assertThat(cipher.decryptIfEncrypted(encValue)).isEqualTo("sk-real-key");
+        assertThat(cipher.decryptIfEncrypted("sk-plain")).isEqualTo("sk-plain");
+    }
 }

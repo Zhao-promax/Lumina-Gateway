@@ -23,4 +23,9 @@ public interface BudgetService {
      * 剩余总预算（仅用于观测/预警）。
      */
     Mono<Long> remaining(String tenant, String appKey);
+
+    /**
+     * 动态更新预算限额（供 Nacos 热更）。
+     */
+    void updateLimits(long dailyLimit, long totalLimit);
 }

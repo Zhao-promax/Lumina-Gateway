@@ -13,4 +13,9 @@ public interface RateLimiter {
      * @return true 允许，false 拒绝
      */
     Mono<Boolean> tryAcquire(String tenant, String appKey, String model);
+
+    /**
+     * 动态更新限流速率（供 Nacos 热更）。
+     */
+    void updateRate(int permitsPerSecond);
 }

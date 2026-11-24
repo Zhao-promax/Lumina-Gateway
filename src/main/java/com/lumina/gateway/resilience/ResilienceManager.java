@@ -18,27 +18,37 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Resilience4j 管理器：按「provider:model」维度管理熔断器，统一提供非流式/流式的装饰入口。
  * <p>
  * 非流式：Retry(外层) → CircuitBreaker → TimeLimiter(内层)；
  * 流式：仅 CircuitBreaker（流式请求产生首字节后不重试，也不设总时长超时）。
+ * 熔断/超时/重试规则支持 Nacos 动态热更（见 {@link #updateResilience}）。
  */
 @Component
 public class ResilienceManager {
 
-    private final GatewayProperties properties;
     private final GatewayMetrics metrics;
+    private final AtomicReference<GatewayProperties.Resilience> resilienceRef;
     private final Map<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
     private volatile Retry retry;
     private volatile TimeLimiter timeLimiter;
 
     public ResilienceManager(GatewayProperties properties, GatewayMetrics metrics) {
-        this.properties = properties;
         this.metrics = metrics;
+        this.resilienceRef = new AtomicReference<>(properties.getResilience());
         this.retry = buildRetry();
         this.timeLimiter = buildTimeLimiter();
+    }
+
+    /**
+     * Nacos 热更入口：替换熔断/超时/重试规则并重建实例。
+     */
+    public void updateResilience(GatewayProperties.Resilience resilience) {
+        this.resilienceRef.set(resilience);
+        reload();
     }
 
     public <T> Mono<T> decorateMono(String key, Mono<T> source) {
@@ -54,17 +64,14 @@ public class ResilienceManager {
         return source.transformDeferred(CircuitBreakerOperator.of(circuitBreaker));
     }
 
-    /**
-     * 配置变更后重建全部熔断器/重试/超时实例（供 Nacos 热更调用）。
-     */
-    public void reload() {
+    private void reload() {
         this.retry = buildRetry();
         this.timeLimiter = buildTimeLimiter();
         this.circuitBreakers.clear();
     }
 
     private CircuitBreaker buildCircuitBreaker(String name) {
-        GatewayProperties.CircuitBreaker cb = properties.getResilience().getCircuitBreaker();
+        GatewayProperties.CircuitBreaker cb = resilienceRef.get().getCircuitBreaker();
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .failureRateThreshold(cb.getFailureRateThreshold())
                 .slidingWindowSize(cb.getSlidingWindowSize())
@@ -84,7 +91,7 @@ public class ResilienceManager {
     }
 
     private Retry buildRetry() {
-        GatewayProperties.Retry r = properties.getResilience().getRetry();
+        GatewayProperties.Retry r = resilienceRef.get().getRetry();
         RetryConfig config = RetryConfig.custom()
                 .maxAttempts(r.getMaxAttempts())
                 .waitDuration(Duration.ofMillis(r.getWaitMs()))
@@ -95,7 +102,7 @@ public class ResilienceManager {
 
     private TimeLimiter buildTimeLimiter() {
         TimeLimiterConfig config = TimeLimiterConfig.custom()
-                .timeoutDuration(Duration.ofMillis(properties.getResilience().getTimeoutMs()))
+                .timeoutDuration(Duration.ofMillis(resilienceRef.get().getTimeoutMs()))
                 .build();
         return TimeLimiter.of(config);
     }

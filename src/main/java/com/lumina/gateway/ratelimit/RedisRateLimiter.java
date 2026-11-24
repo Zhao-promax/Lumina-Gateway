@@ -48,10 +48,15 @@ public class RedisRateLimiter implements RateLimiter {
     private static final DefaultRedisScript<Long> SCRIPT = new DefaultRedisScript<>(LUA, Long.class);
 
     private final ReactiveStringRedisTemplate redis;
-    private final int permitsPerSecond;
+    private volatile int permitsPerSecond;
 
     public RedisRateLimiter(ReactiveStringRedisTemplate redis, int permitsPerSecond) {
         this.redis = redis;
+        this.permitsPerSecond = permitsPerSecond;
+    }
+
+    @Override
+    public void updateRate(int permitsPerSecond) {
         this.permitsPerSecond = permitsPerSecond;
     }
 

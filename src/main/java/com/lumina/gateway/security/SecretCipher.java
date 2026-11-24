@@ -19,6 +19,7 @@ public class SecretCipher {
 
     private static final int IV_LENGTH = 12;
     private static final int GCM_TAG_BITS = 128;
+    private static final String ENC_PREFIX = "ENC(";
 
     private final SecretKey key;
 
@@ -56,5 +57,22 @@ public class SecretCipher {
         } catch (Exception e) {
             throw new IllegalStateException("decrypt failed", e);
         }
+    }
+
+    /**
+     * 配置值是否为密文（形如 ENC(base64)）。
+     */
+    public static boolean isEncrypted(String value) {
+        return value != null && value.startsWith(ENC_PREFIX) && value.endsWith(")");
+    }
+
+    /**
+     * 若为 ENC(...) 密文则解密，否则原样返回。
+     */
+    public String decryptIfEncrypted(String value) {
+        if (!isEncrypted(value)) {
+            return value;
+        }
+        return decrypt(value.substring(ENC_PREFIX.length(), value.length() - 1));
     }
 }

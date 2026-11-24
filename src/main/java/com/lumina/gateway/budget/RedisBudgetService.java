@@ -50,11 +50,17 @@ public class RedisBudgetService implements BudgetService {
     private static final DefaultRedisScript<Long> SETTLE_SCRIPT = new DefaultRedisScript<>(SETTLE_LUA, Long.class);
 
     private final ReactiveStringRedisTemplate redis;
-    private final long dailyLimit;
-    private final long totalLimit;
+    private volatile long dailyLimit;
+    private volatile long totalLimit;
 
     public RedisBudgetService(ReactiveStringRedisTemplate redis, long dailyLimit, long totalLimit) {
         this.redis = redis;
+        this.dailyLimit = dailyLimit;
+        this.totalLimit = totalLimit;
+    }
+
+    @Override
+    public void updateLimits(long dailyLimit, long totalLimit) {
         this.dailyLimit = dailyLimit;
         this.totalLimit = totalLimit;
     }

@@ -5,6 +5,8 @@ import com.alibaba.nacos.api.PropertyKeyConst;
 import com.alibaba.nacos.api.config.ConfigService;
 import com.alibaba.nacos.api.config.listener.Listener;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lumina.gateway.budget.BudgetService;
+import com.lumina.gateway.ratelimit.RateLimiter;
 import com.lumina.gateway.resilience.ResilienceManager;
 import com.lumina.gateway.routing.RouteResolver;
 import jakarta.annotation.PostConstruct;
@@ -19,9 +21,9 @@ import java.util.concurrent.Executor;
 /**
  * Nacos 动态规则源（可选，默认关闭）。
  * <p>
- * 启用后（gateway.nacos.enabled=true）从 Nacos 拉取路由规则 JSON，并监听变更实时热更。
+ * 启用后（gateway.nacos.enabled=true）从 Nacos 拉取路由/熔断/限流/预算规则，并监听变更实时热更。
  * 启动时若 Nacos 尚未就绪会重试连接（最多 5 次 × 5s），仍失败则回退本地配置。
- * JSON 结构与 gateway.routing 一致，见 deploy/nacos-config-example.json。
+ * JSON 结构见 {@link GatewayRules}（样例 deploy/nacos-config-example.json）。
  */
 @Component
 @ConditionalOnProperty(name = "gateway.nacos.enabled", havingValue = "true")
@@ -35,15 +37,21 @@ public class NacosRuleSource {
     private final GatewayProperties properties;
     private final RouteResolver routeResolver;
     private final ResilienceManager resilienceManager;
+    private final RateLimiter rateLimiter;
+    private final BudgetService budgetService;
     private final ObjectMapper objectMapper;
 
     public NacosRuleSource(GatewayProperties properties,
                            RouteResolver routeResolver,
                            ResilienceManager resilienceManager,
+                           RateLimiter rateLimiter,
+                           BudgetService budgetService,
                            ObjectMapper objectMapper) {
         this.properties = properties;
         this.routeResolver = routeResolver;
         this.resilienceManager = resilienceManager;
+        this.rateLimiter = rateLimiter;
+        this.budgetService = budgetService;
         this.objectMapper = objectMapper;
     }
 
@@ -87,7 +95,7 @@ public class NacosRuleSource {
 
             @Override
             public void receiveConfigInfo(String configInfo) {
-                log.info("nacos routing config changed, applying...");
+                log.info("nacos rules config changed, applying...");
                 apply(configInfo);
             }
         });
@@ -103,12 +111,22 @@ public class NacosRuleSource {
 
     private void apply(String json) {
         try {
-            GatewayProperties.Routing routing = objectMapper.readValue(json, GatewayProperties.Routing.class);
-            routeResolver.updateRouting(routing);
-            resilienceManager.reload();
-            log.info("routing rules updated from nacos");
+            GatewayRules rules = objectMapper.readValue(json, GatewayRules.class);
+            if (rules.routing() != null) {
+                routeResolver.updateRouting(rules.routing());
+            }
+            if (rules.resilience() != null) {
+                resilienceManager.updateResilience(rules.resilience());
+            }
+            if (rules.rateLimit() != null) {
+                rateLimiter.updateRate(rules.rateLimit().getPermitsPerSecond());
+            }
+            if (rules.budget() != null) {
+                budgetService.updateLimits(rules.budget().getDailyLimit(), rules.budget().getTotalLimit());
+            }
+            log.info("gateway rules updated from nacos");
         } catch (Exception e) {
-            log.error("failed to apply nacos routing config: {}", e.getMessage());
+            log.error("failed to apply nacos rules config: {}", e.getMessage());
         }
     }
 }

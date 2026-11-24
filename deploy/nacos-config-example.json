@@ -1,25 +1,49 @@
 {
-  "defaultTag": "default",
-  "downgradeEnabled": false,
-  "routes": [
-    {
-      "tag": "default",
-      "models": [
-        { "provider": "deepseek", "model": "deepseek-v4-pro", "price": 0.002, "weight": 100 },
-        { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 0 }
-      ]
+  "routing": {
+    "defaultTag": "default",
+    "downgradeEnabled": false,
+    "routes": [
+      {
+        "tag": "default",
+        "models": [
+          { "provider": "deepseek", "model": "deepseek-flash", "price": 0.002, "weight": 100 },
+          { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 0 }
+        ]
+      },
+      {
+        "tag": "qwen",
+        "models": [
+          { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 100 }
+        ]
+      },
+      {
+        "tag": "mock",
+        "models": [
+          { "provider": "mock", "model": "mock-model", "price": 0, "weight": 100 }
+        ]
+      }
+    ]
+  },
+  "resilience": {
+    "circuitBreaker": {
+      "failureRateThreshold": 50,
+      "slidingWindowSize": 10,
+      "minimumNumberOfCalls": 5,
+      "waitDurationInOpenStateMs": 10000
     },
-    {
-      "tag": "qwen",
-      "models": [
-        { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 100 }
-      ]
-    },
-    {
-      "tag": "mock",
-      "models": [
-        { "provider": "mock", "model": "mock-model", "price": 0, "weight": 100 }
-      ]
+    "timeoutMs": 30000,
+    "retry": {
+      "maxAttempts": 2,
+      "waitMs": 200
     }
-  ]
+  },
+  "rateLimit": {
+    "enabled": true,
+    "permitsPerSecond": 10
+  },
+  "budget": {
+    "enabled": true,
+    "dailyLimit": 100000,
+    "totalLimit": 1000000
+  }
 }

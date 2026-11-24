@@ -11,11 +11,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class InMemoryRateLimiter implements RateLimiter {
 
-    private final int permitsPerSecond;
+    private volatile int permitsPerSecond;
     private final ConcurrentHashMap<String, TokenBucket> buckets = new ConcurrentHashMap<>();
 
     public InMemoryRateLimiter(int permitsPerSecond) {
         this.permitsPerSecond = permitsPerSecond;
+    }
+
+    @Override
+    public void updateRate(int permitsPerSecond) {
+        this.permitsPerSecond = permitsPerSecond;
+        this.buckets.clear();  // 清空旧桶，让后续请求按新速率计数
     }
 
     @Override

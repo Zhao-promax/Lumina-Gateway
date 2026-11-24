@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.gateway.api.dto.ErrorBody;
 import com.lumina.gateway.config.GatewayProperties;
+import com.lumina.gateway.security.SecretCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -17,6 +18,7 @@ import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * AppKey 签名鉴权过滤器。
@@ -42,11 +44,15 @@ public class AppKeyAuthFilter implements WebFilter {
     public AppKeyAuthFilter(GatewayProperties properties,
                             SignatureService signatureService,
                             NonceStore nonceStore,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            Optional<SecretCipher> cipher) {
         this.properties = properties;
         this.signatureService = signatureService;
         this.nonceStore = nonceStore;
         this.objectMapper = objectMapper;
+        // 解密 AppSecret（支持 ENC(base64) 密文）
+        cipher.ifPresent(c -> properties.getAuth().getApps().forEach(app ->
+                app.setAppSecret(c.decryptIfEncrypted(app.getAppSecret()))));
     }
 
     @Override
