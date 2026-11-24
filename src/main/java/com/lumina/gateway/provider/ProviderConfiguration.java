@@ -18,6 +18,9 @@ public class ProviderConfiguration {
         ProviderRegistry registry = new ProviderRegistry();
         register(registry, properties, objectMapper, "deepseek", DeepSeekProvider::new);
         register(registry, properties, objectMapper, "qwen", QwenProvider::new);
+        if (properties.getMock().isEnabled()) {
+            registry.register(new MockProvider(properties.getMock().getChunkCount(), properties.getMock().getChunkDelayMs()));
+        }
         return registry;
     }
 

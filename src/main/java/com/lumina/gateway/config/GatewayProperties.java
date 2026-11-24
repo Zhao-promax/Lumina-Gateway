@@ -25,6 +25,7 @@ public class GatewayProperties {
     private Cache cache = new Cache();
     private Moderation moderation = new Moderation();
     private Audit audit = new Audit();
+    private Mock mock = new Mock();
     private Map<String, ProviderConfig> providers = new HashMap<>();
 
     public Auth getAuth() {
@@ -97,6 +98,14 @@ public class GatewayProperties {
 
     public void setAudit(Audit audit) {
         this.audit = audit;
+    }
+
+    public Mock getMock() {
+        return mock;
+    }
+
+    public void setMock(Mock mock) {
+        this.mock = mock;
     }
 
     public Map<String, ProviderConfig> getProviders() {
@@ -560,6 +569,38 @@ public class GatewayProperties {
 
         public void setQueue(String queue) {
             this.queue = queue;
+        }
+    }
+
+    // ===== Mock 厂商（压测/演示用，默认关闭） =====
+
+    public static class Mock {
+        private boolean enabled = false;
+        private int chunkCount = 50;
+        private long chunkDelayMs = 20;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getChunkCount() {
+            return chunkCount;
+        }
+
+        public void setChunkCount(int chunkCount) {
+            this.chunkCount = chunkCount;
+        }
+
+        public long getChunkDelayMs() {
+            return chunkDelayMs;
+        }
+
+        public void setChunkDelayMs(long chunkDelayMs) {
+            this.chunkDelayMs = chunkDelayMs;
         }
     }
 

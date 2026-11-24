@@ -2,7 +2,7 @@
 
 面向业务系统的异构大模型统一接入网关（OpenAI 兼容）。
 
-> 配套文档：[plan.md](plan.md)（计划书）、[architecture.md](architecture.md)（架构设计书）。
+> 配套文档：[plan.md](plan.md)（计划书）、[architecture.md](architecture.md)（架构设计书）、[docs/api.md](docs/api.md)（接口文档）、[docs/test-report.md](docs/test-report.md)（测试报告）。
 
 ## 技术栈
 

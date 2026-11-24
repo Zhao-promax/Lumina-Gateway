@@ -54,6 +54,12 @@ gateway:
             model: "qwen-plus"
             price: 0.0008
             weight: 100
+      - tag: "mock"
+        models:
+          - provider: "mock"
+            model: "mock-model"
+            price: 0
+            weight: 100
   resilience:
     circuit-breaker:
       failure-rate-threshold: 50
@@ -90,6 +96,10 @@ gateway:
     server-addr: "localhost:8848"
     data-id: "lumina-gateway-routing"
     group: "DEFAULT_GROUP"
+  mock:
+    enabled: false               # 压测/演示时设为 true
+    chunk-count: 50
+    chunk-delay-ms: 20
   providers:
     deepseek:
       base-url: "https://api.deepseek.com"
