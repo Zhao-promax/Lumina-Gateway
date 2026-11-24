@@ -20,20 +20,17 @@ import java.util.concurrent.Executor;
  * Nacos 动态规则源（可选，默认关闭）。
  * <p>
  * 启用后（gateway.nacos.enabled=true）从 Nacos 拉取路由规则 JSON，并监听变更实时热更。
- * JSON 结构与 gateway.routing 一致，例如：
- * <pre>
- * {
- *   "defaultTag": "default",
- *   "downgradeEnabled": false,
- *   "routes": [ {"tag":"default","models":[{"provider":"deepseek","model":"deepseek-chat","price":0.002,"weight":100}]} ]
- * }
- * </pre>
+ * 启动时若 Nacos 尚未就绪会重试连接（最多 5 次 × 5s），仍失败则回退本地配置。
+ * JSON 结构与 gateway.routing 一致，见 deploy/nacos-config-example.json。
  */
 @Component
 @ConditionalOnProperty(name = "gateway.nacos.enabled", havingValue = "true")
 public class NacosRuleSource {
 
     private static final Logger log = LoggerFactory.getLogger(NacosRuleSource.class);
+
+    private static final int MAX_ATTEMPTS = 5;
+    private static final long RETRY_DELAY_MS = 5000;
 
     private final GatewayProperties properties;
     private final RouteResolver routeResolver;
@@ -52,34 +49,55 @@ public class NacosRuleSource {
 
     @PostConstruct
     public void init() {
-        try {
-            Properties props = new Properties();
-            props.setProperty(PropertyKeyConst.SERVER_ADDR, properties.getNacos().getServerAddr());
-            ConfigService configService = NacosFactory.createConfigService(props);
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                doInit();
+                log.info("nacos rule source initialized: {}:{}",
+                        properties.getNacos().getDataId(), properties.getNacos().getGroup());
+                return;
+            } catch (Exception e) {
+                log.warn("nacos init attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e.getMessage());
+                if (attempt == MAX_ATTEMPTS) {
+                    log.error("nacos unavailable after {} attempts, fallback to local config", MAX_ATTEMPTS);
+                    return;
+                }
+                sleep();
+            }
+        }
+    }
 
-            String dataId = properties.getNacos().getDataId();
-            String group = properties.getNacos().getGroup();
+    private void doInit() throws Exception {
+        Properties props = new Properties();
+        props.setProperty(PropertyKeyConst.SERVER_ADDR, properties.getNacos().getServerAddr());
+        ConfigService configService = NacosFactory.createConfigService(props);
 
-            String content = configService.getConfig(dataId, group, 5000);
-            if (content != null && !content.isBlank()) {
-                apply(content);
+        String dataId = properties.getNacos().getDataId();
+        String group = properties.getNacos().getGroup();
+
+        String content = configService.getConfig(dataId, group, 5000);
+        if (content != null && !content.isBlank()) {
+            apply(content);
+        }
+
+        configService.addListener(dataId, group, new Listener() {
+            @Override
+            public Executor getExecutor() {
+                return null;
             }
 
-            configService.addListener(dataId, group, new Listener() {
-                @Override
-                public Executor getExecutor() {
-                    return null;
-                }
+            @Override
+            public void receiveConfigInfo(String configInfo) {
+                log.info("nacos routing config changed, applying...");
+                apply(configInfo);
+            }
+        });
+    }
 
-                @Override
-                public void receiveConfigInfo(String configInfo) {
-                    log.info("nacos routing config changed, applying...");
-                    apply(configInfo);
-                }
-            });
-            log.info("nacos rule source initialized: {}:{}", dataId, group);
-        } catch (Exception e) {
-            log.error("failed to init nacos rule source, fallback to local config", e);
+    private void sleep() {
+        try {
+            Thread.sleep(RETRY_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

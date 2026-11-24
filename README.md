@@ -100,6 +100,20 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 - `deploy/k8s.yaml`：Deployment + Service + HPA（含健康/就绪探针、密钥注入）
 - `deploy/application-prod.yml`：生产配置（Redis/RabbitMQ/Nacos 后端）
 - `deploy/schema.sql`：审计日志表结构
+- `deploy/nacos-config-example.json`：Nacos 路由规则样例
+- `deploy/lumina-gateway.postman_collection.json`：Postman 测试集合
+
+### Docker Compose（单机 VM 部署）
+
+```bash
+cp .env.example .env        # 填写厂商密钥
+docker compose up -d --build
+bash scripts/nacos-init.sh  # 首次推送路由规则到 Nacos
+```
+
+编排包含：**Nacos**（配置中心，standalone）、**Redis**（限流/预算）、**RabbitMQ**（审计）、**网关**。
+网关等待 Redis/RabbitMQ 健康后再启动；Nacos 未就绪时网关会重试连接（最多 5 次），失败则回退本地配置。
+修改 Nacos 中的 `lumina-gateway-routing` 配置即可热更路由/降级规则，无需重启。
 
 ## 已知边界
 
