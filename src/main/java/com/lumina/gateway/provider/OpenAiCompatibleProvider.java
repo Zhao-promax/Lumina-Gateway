@@ -56,7 +56,9 @@ public abstract class OpenAiCompatibleProvider implements ModelProvider {
 
     @Override
     public Mono<ChatResponse> chat(ChatRequest request) {
-        ensureApiKey();
+        if (!hasApiKey()) {
+            return Mono.error(missingKeyError());
+        }
         return webClient.post()
                 .uri("/chat/completions")
                 .header("Authorization", "Bearer " + apiKey)
@@ -70,9 +72,12 @@ public abstract class OpenAiCompatibleProvider implements ModelProvider {
 
     @Override
     public Flux<ChatChunk> chatStream(ChatRequest request) {
-        ensureApiKey();
+        if (!hasApiKey()) {
+            return Flux.error(missingKeyError());
+        }
         Map<String, Object> body = buildBody(request);
         body.put("stream", true);
+        body.put("stream_options", Map.of("include_usage", true));
         return webClient.post()
                 .uri("/chat/completions")
                 .header("Authorization", "Bearer " + apiKey)
@@ -121,11 +126,13 @@ public abstract class OpenAiCompatibleProvider implements ModelProvider {
         }
     }
 
-    private void ensureApiKey() {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new GatewayException(HttpStatus.SERVICE_UNAVAILABLE, "provider_not_configured",
-                    "provider " + provider + " has no api-key configured (set env DEEPSEEK_API_KEY / QWEN_API_KEY)");
-        }
+    private boolean hasApiKey() {
+        return apiKey != null && !apiKey.isBlank();
+    }
+
+    private GatewayException missingKeyError() {
+        return new GatewayException(HttpStatus.SERVICE_UNAVAILABLE, "provider_not_configured",
+                "provider " + provider + " has no api-key configured (set env DEEPSEEK_API_KEY / QWEN_API_KEY)");
     }
 
     private GatewayException mapError(HttpStatusCode status, String body) {

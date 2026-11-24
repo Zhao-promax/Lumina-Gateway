@@ -63,6 +63,17 @@ gateway:
     enabled: true
     backend: "memory"          # memory | redis（redis 需 spring.data.redis 配置）
     permits-per-second: 10
+  budget:
+    enabled: true
+    backend: "memory"          # memory | redis（redis 需 spring.data.redis 配置）
+    daily-limit: 100000
+    total-limit: 1000000
+    default-completion-tokens: 512
+  cache:
+    exact-enabled: true
+    exact-ttl-seconds: 3600
+    semantic-enabled: false    # 需 EmbeddingProvider Bean + 可选 Redis Stack
+    semantic-threshold: 0.9
   nacos:
     enabled: false             # 启用后从 Nacos 热更路由规则
     server-addr: "localhost:8848"

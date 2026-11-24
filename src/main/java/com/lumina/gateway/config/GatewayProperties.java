@@ -21,6 +21,8 @@ public class GatewayProperties {
     private Resilience resilience = new Resilience();
     private RateLimit rateLimit = new RateLimit();
     private Nacos nacos = new Nacos();
+    private Budget budget = new Budget();
+    private Cache cache = new Cache();
     private Map<String, ProviderConfig> providers = new HashMap<>();
 
     public Auth getAuth() {
@@ -61,6 +63,22 @@ public class GatewayProperties {
 
     public void setNacos(Nacos nacos) {
         this.nacos = nacos;
+    }
+
+    public Budget getBudget() {
+        return budget;
+    }
+
+    public void setBudget(Budget budget) {
+        this.budget = budget;
+    }
+
+    public Cache getCache() {
+        return cache;
+    }
+
+    public void setCache(Cache cache) {
+        this.cache = cache;
     }
 
     public Map<String, ProviderConfig> getProviders() {
@@ -387,6 +405,97 @@ public class GatewayProperties {
 
         public void setGroup(String group) {
             this.group = group;
+        }
+    }
+
+    // ===== 预算配额 =====
+
+    public static class Budget {
+        private boolean enabled = true;
+        private String backend = "memory";   // memory | redis
+        private long dailyLimit = 100000;
+        private long totalLimit = 1000000;
+        private long defaultCompletionTokens = 512;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getBackend() {
+            return backend;
+        }
+
+        public void setBackend(String backend) {
+            this.backend = backend;
+        }
+
+        public long getDailyLimit() {
+            return dailyLimit;
+        }
+
+        public void setDailyLimit(long dailyLimit) {
+            this.dailyLimit = dailyLimit;
+        }
+
+        public long getTotalLimit() {
+            return totalLimit;
+        }
+
+        public void setTotalLimit(long totalLimit) {
+            this.totalLimit = totalLimit;
+        }
+
+        public long getDefaultCompletionTokens() {
+            return defaultCompletionTokens;
+        }
+
+        public void setDefaultCompletionTokens(long defaultCompletionTokens) {
+            this.defaultCompletionTokens = defaultCompletionTokens;
+        }
+    }
+
+    // ===== 缓存 =====
+
+    public static class Cache {
+        private boolean exactEnabled = true;
+        private long exactTtlSeconds = 3600;
+        private boolean semanticEnabled = false;
+        private double semanticThreshold = 0.9;
+
+        public boolean isExactEnabled() {
+            return exactEnabled;
+        }
+
+        public void setExactEnabled(boolean exactEnabled) {
+            this.exactEnabled = exactEnabled;
+        }
+
+        public long getExactTtlSeconds() {
+            return exactTtlSeconds;
+        }
+
+        public void setExactTtlSeconds(long exactTtlSeconds) {
+            this.exactTtlSeconds = exactTtlSeconds;
+        }
+
+        public boolean isSemanticEnabled() {
+            return semanticEnabled;
+        }
+
+        public void setSemanticEnabled(boolean semanticEnabled) {
+            this.semanticEnabled = semanticEnabled;
+        }
+
+        public double getSemanticThreshold() {
+            return semanticThreshold;
+        }
+
+        public void setSemanticThreshold(double semanticThreshold) {
+            this.semanticThreshold = semanticThreshold;
         }
     }
 

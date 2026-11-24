@@ -8,6 +8,8 @@ import com.lumina.gateway.api.dto.ChatResponse;
 import com.lumina.gateway.api.dto.ChunkChoice;
 import com.lumina.gateway.api.dto.ChunkDelta;
 import com.lumina.gateway.api.dto.Usage;
+import com.lumina.gateway.budget.InMemoryBudgetService;
+import com.lumina.gateway.cache.ExactCacheService;
 import com.lumina.gateway.config.GatewayProperties;
 import com.lumina.gateway.exception.GatewayException;
 import com.lumina.gateway.provider.ProviderRegistry;
@@ -52,6 +54,7 @@ class ChatServiceTest {
         props.getResilience().getRetry().setMaxAttempts(1);  // 测试不重试
         props.getResilience().getRetry().setWaitMs(1);
         props.getRateLimit().setEnabled(false);
+        props.getBudget().setEnabled(false);
 
         GatewayProperties.Routing routing = new GatewayProperties.Routing();
         routing.setDefaultTag("default");
@@ -70,7 +73,11 @@ class ChatServiceTest {
         RouteResolver resolver = new RouteResolver(props);
         ResilienceManager resilience = new ResilienceManager(props);
         return new ChatService(registry, resolver, resilience, props,
-                new InMemoryRateLimiter(1000), new ObjectMapper());
+                new InMemoryRateLimiter(1000),
+                new InMemoryBudgetService(Long.MAX_VALUE, Long.MAX_VALUE),
+                new ExactCacheService(props),
+                java.util.Optional.empty(),
+                new ObjectMapper());
     }
 
     private ChatRequest request() {

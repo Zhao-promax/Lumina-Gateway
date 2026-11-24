@@ -12,6 +12,7 @@ Java 17 · Spring Boot 3.2 · Spring WebFlux（Reactor）· Resilience4j · Redi
 
 - **阶段 1（底座 MVP）**：OpenAI 兼容接口、SPI 适配器、SSE 流式透传、断连取消、标签路由、AppKey 签名鉴权
 - **阶段 2（可靠性治理）**：Resilience4j 熔断/超时/重试、主备故障转移、高价→廉价降级、多维限流、Nacos 动态热更（可选）
+- **阶段 3（成本管控）**：Token 用量统计、Redis 原子预算配额（预扣+结算）、超额拦截（402）、精确 Prompt 哈希缓存、Embedding 语义缓存（可选）
 
 ## 构建与运行
 
@@ -37,6 +38,9 @@ export QWEN_API_KEY=sk-xxxx
 | `gateway.resilience.*` | 熔断（失败率阈值/滑动窗口/最小调用数）、超时、重试 |
 | `gateway.rate-limit.backend` | `memory`（默认，单实例）或 `redis`（分布式） |
 | `gateway.rate-limit.permits-per-second` | 每租户/App/模型维度的令牌速率 |
+| `gateway.budget.*` | 预算配额（日/总限额、后端、默认完成 Token 估算），超额返回 402 |
+| `gateway.cache.exact-*` | 精确 Prompt 哈希缓存（仅 temperature=0 命中） |
+| `gateway.cache.semantic-*` | Embedding 语义缓存（需提供 EmbeddingProvider Bean） |
 | `gateway.nacos.enabled` | 启用后路由规则从 Nacos 热更（默认 false） |
 
 ## 调用方式

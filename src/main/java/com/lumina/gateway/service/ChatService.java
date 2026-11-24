@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.gateway.api.dto.ChatChunk;
 import com.lumina.gateway.api.dto.ChatRequest;
 import com.lumina.gateway.api.dto.ChatResponse;
+import com.lumina.gateway.budget.BudgetService;
+import com.lumina.gateway.cache.ExactCacheService;
+import com.lumina.gateway.cache.SemanticCacheService;
 import com.lumina.gateway.config.GatewayProperties;
 import com.lumina.gateway.exception.GatewayException;
 import com.lumina.gateway.provider.ProviderRegistry;
@@ -13,18 +16,22 @@ import com.lumina.gateway.ratelimit.RateLimiter;
 import com.lumina.gateway.resilience.ResilienceManager;
 import com.lumina.gateway.routing.RouteResolver;
 import com.lumina.gateway.routing.RouteTarget;
+import com.lumina.gateway.usage.TokenEstimator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 网关编排：路由解析 → 限流 → 主备故障转移/降级（含 Resilience4j 熔断/超时/重试）→ 结果标准化。
+ * 网关编排：路由 → 限流 → 预算预扣 → 双层缓存 → 主备故障转移/降级 → 结算 → 标准化。
  */
 @Service
 public class ChatService {
@@ -38,6 +45,9 @@ public class ChatService {
     private final ResilienceManager resilienceManager;
     private final GatewayProperties properties;
     private final RateLimiter rateLimiter;
+    private final BudgetService budgetService;
+    private final ExactCacheService exactCache;
+    private final Optional<SemanticCacheService> semanticCache;
     private final ObjectMapper objectMapper;
 
     public ChatService(ProviderRegistry registry,
@@ -45,41 +55,115 @@ public class ChatService {
                        ResilienceManager resilienceManager,
                        GatewayProperties properties,
                        RateLimiter rateLimiter,
+                       BudgetService budgetService,
+                       ExactCacheService exactCache,
+                       Optional<SemanticCacheService> semanticCache,
                        ObjectMapper objectMapper) {
         this.registry = registry;
         this.router = router;
         this.resilienceManager = resilienceManager;
         this.properties = properties;
         this.rateLimiter = rateLimiter;
+        this.budgetService = budgetService;
+        this.exactCache = exactCache;
+        this.semanticCache = semanticCache;
         this.objectMapper = objectMapper;
     }
 
+    // ===== 非流式 =====
+
     public Mono<ChatResponse> complete(ChatRequest request, String routeTag, String tenant, String appKey) {
         List<RouteTarget> candidates = router.resolveCandidates(routeTag);
+        if (candidates.isEmpty()) {
+            return Mono.error(new GatewayException(HttpStatus.BAD_REQUEST, "no_route", "no candidates"));
+        }
+        String model = candidates.get(0).model();
         return rateLimitCheck(candidates, tenant, appKey)
-                .then(failoverMono(candidates, request));
+                .then(Mono.defer(() -> {
+                    long estimate = TokenEstimator.estimate(request, properties.getBudget().getDefaultCompletionTokens());
+                    return reserve(tenant, appKey, estimate)
+                            .flatMap(reserved -> reserved
+                                    ? cachedOrCall(candidates, request, tenant, appKey, model, estimate)
+                                            .onErrorResume(e -> refund(tenant, appKey, estimate, e))
+                                    : Mono.error(budgetExceeded()));
+                }));
     }
+
+    private Mono<ChatResponse> cachedOrCall(List<RouteTarget> candidates, ChatRequest request,
+                                            String tenant, String appKey, String model, long estimate) {
+        // 1) 精确缓存（仅 temperature=0 确定性输出）
+        if (exactCache.isCacheable(request)) {
+            String key = exactCache.key(request, model);
+            ChatResponse cached = exactCache.get(key);
+            if (cached != null) {
+                log.info("exact cache hit, key={}", key);
+                return settle(tenant, appKey, -estimate).thenReturn(cached);
+            }
+            return failoverMono(candidates, request)
+                    .flatMap(resp -> {
+                        exactCache.put(key, resp);
+                        return settleUsage(resp, estimate, tenant, appKey);
+                    });
+        }
+        // 2) 语义缓存（可选，非流式）
+        if (semanticCache.isPresent() && semanticCache.get().isEnabled()) {
+            SemanticCacheService sc = semanticCache.get();
+            String query = lastUserContent(request);
+            Optional<ChatResponse> hit = sc.find(query, model);
+            if (hit.isPresent()) {
+                log.info("semantic cache hit, model={}", model);
+                return settle(tenant, appKey, -estimate).thenReturn(hit.get());
+            }
+            return failoverMono(candidates, request)
+                    .flatMap(resp -> {
+                        sc.put(query, model, resp);
+                        return settleUsage(resp, estimate, tenant, appKey);
+                    });
+        }
+        // 3) 无缓存
+        return failoverMono(candidates, request)
+                .flatMap(resp -> settleUsage(resp, estimate, tenant, appKey));
+    }
+
+    // ===== 流式 =====
 
     public Flux<String> stream(ChatRequest request, String routeTag, String tenant, String appKey) {
         List<RouteTarget> candidates = router.resolveCandidates(routeTag);
+        if (candidates.isEmpty()) {
+            return Flux.error(new GatewayException(HttpStatus.BAD_REQUEST, "no_route", "no candidates"));
+        }
         return rateLimitCheck(candidates, tenant, appKey)
-                .thenMany(streamChunks(candidates, 0, request))
-                .map(this::formatChunk)
-                .concatWith(Mono.just(DONE_FRAME))
-                .doOnCancel(() -> log.info("client disconnected, upstream stream cancelled"));
+                .thenMany(Flux.defer(() -> {
+                    long estimate = TokenEstimator.estimate(request, properties.getBudget().getDefaultCompletionTokens());
+                    return reserve(tenant, appKey, estimate)
+                            .flatMapMany(reserved -> reserved
+                                    ? streamWithSettle(candidates, request, tenant, appKey, estimate)
+                                    : Flux.error(budgetExceeded()));
+                }));
     }
 
-    private Mono<Void> rateLimitCheck(List<RouteTarget> candidates, String tenant, String appKey) {
-        if (!properties.getRateLimit().isEnabled() || candidates.isEmpty()) {
-            return Mono.empty();
-        }
-        RouteTarget target = candidates.get(0);
-        return rateLimiter.tryAcquire(tenant, appKey, target.model())
-                .flatMap(allowed -> allowed
-                        ? Mono.empty()
-                        : Mono.error(new GatewayException(HttpStatus.TOO_MANY_REQUESTS,
-                                "rate_limit_error", "rate limit exceeded")));
+    private Flux<String> streamWithSettle(List<RouteTarget> candidates, ChatRequest request,
+                                          String tenant, String appKey, long estimate) {
+        AtomicLong actual = new AtomicLong(estimate);
+        return streamChunks(candidates, 0, request)
+                .doOnNext(chunk -> {
+                    if (chunk.usage() != null) {
+                        actual.set(chunk.usage().totalTokens());
+                    }
+                })
+                .map(this::formatChunk)
+                .concatWith(Mono.just(DONE_FRAME))
+                .doFinally(sig -> {
+                    long delta = (sig == SignalType.ON_ERROR)
+                            ? -estimate                       // 失败退款
+                            : actual.get() - estimate;        // 正常/取消按实际结算
+                    settle(tenant, appKey, delta)
+                            .subscribe(v -> {
+                            }, e -> log.warn("stream budget settle failed", e));
+                });
     }
+
+    // ===== 故障转移 =====
 
     private Mono<ChatResponse> failoverMono(List<RouteTarget> candidates, ChatRequest request) {
         return Flux.fromIterable(candidates)
@@ -110,12 +194,66 @@ public class ChatService {
                 .doOnNext(chunk -> emitted.set(true))
                 .onErrorResume(e -> {
                     if (emitted.get()) {
-                        // 已产生首字节，不能切换候选，避免输出错乱与重复计费
                         return Flux.error(e);
                     }
                     log.warn("stream candidate {} failed before first byte, failing over", key);
                     return streamChunks(candidates, idx + 1, request);
                 });
+    }
+
+    // ===== 限流 / 预算 =====
+
+    private Mono<Void> rateLimitCheck(List<RouteTarget> candidates, String tenant, String appKey) {
+        if (!properties.getRateLimit().isEnabled() || candidates.isEmpty()) {
+            return Mono.empty();
+        }
+        return rateLimiter.tryAcquire(tenant, appKey, candidates.get(0).model())
+                .flatMap(allowed -> allowed
+                        ? Mono.empty()
+                        : Mono.error(new GatewayException(HttpStatus.TOO_MANY_REQUESTS,
+                                "rate_limit_error", "rate limit exceeded")));
+    }
+
+    private Mono<Boolean> reserve(String tenant, String appKey, long tokens) {
+        if (!properties.getBudget().isEnabled()) {
+            return Mono.just(true);
+        }
+        return budgetService.reserve(tenant, appKey, tokens);
+    }
+
+    private Mono<Void> settle(String tenant, String appKey, long delta) {
+        if (!properties.getBudget().isEnabled()) {
+            return Mono.empty();
+        }
+        return budgetService.settle(tenant, appKey, delta);
+    }
+
+    private Mono<ChatResponse> settleUsage(ChatResponse resp, long estimate, String tenant, String appKey) {
+        long actual = resp.usage() != null ? resp.usage().totalTokens() : estimate;
+        return settle(tenant, appKey, actual - estimate).thenReturn(resp);
+    }
+
+    private Mono<ChatResponse> refund(String tenant, String appKey, long estimate, Throwable error) {
+        return settle(tenant, appKey, -estimate).then(Mono.error(error));
+    }
+
+    private GatewayException budgetExceeded() {
+        return new GatewayException(HttpStatus.PAYMENT_REQUIRED, "insufficient_quota", "budget quota exceeded");
+    }
+
+    // ===== 辅助 =====
+
+    private String lastUserContent(ChatRequest request) {
+        if (request.getMessages() == null) {
+            return "";
+        }
+        for (int i = request.getMessages().size() - 1; i >= 0; i--) {
+            var m = request.getMessages().get(i);
+            if ("user".equals(m.role()) && m.content() != null) {
+                return m.content();
+            }
+        }
+        return "";
     }
 
     private String formatChunk(ChatChunk chunk) {
