@@ -8,11 +8,15 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 异步审计：结构化日志（始终）+ 可选 RabbitMQ 投递。
  * <p>
- * 主链路不阻塞：MQ 投递为 fire-and-forget；消费者异步落库（见 AuditConfiguration）。
+ * 审计在独立线程池异步执行（有界队列 + 溢出丢弃），不阻塞响应主链路。
  */
 @Component
 public class AuditService {
@@ -22,6 +26,7 @@ public class AuditService {
     private final GatewayProperties properties;
     private final Optional<RabbitTemplate> rabbitTemplate;
     private final ObjectMapper objectMapper;
+    private final ExecutorService auditExecutor;
 
     public AuditService(GatewayProperties properties,
                         Optional<RabbitTemplate> rabbitTemplate,
@@ -29,9 +34,26 @@ public class AuditService {
         this.properties = properties;
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
+        this.auditExecutor = new ThreadPoolExecutor(
+                2, 4, 60, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(10000),
+                r -> {
+                    Thread t = new Thread(r, "audit-worker");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.DiscardPolicy());
     }
 
     public void record(AuditEvent event) {
+        try {
+            auditExecutor.execute(() -> doRecord(event));
+        } catch (Exception e) {
+            log.warn("audit queue overflow, dropped event");
+        }
+    }
+
+    private void doRecord(AuditEvent event) {
         // 结构化日志（始终可用，便于日志采集）
         try {
             log.info("{}", objectMapper.writeValueAsString(event));

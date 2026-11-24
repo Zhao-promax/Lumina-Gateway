@@ -1,35 +1,34 @@
 #!/usr/bin/env python3
-"""Lumina Gateway 并发压测脚本。
+"""Lumina Gateway 并发压测脚本（HTTP keep-alive 连接复用，测量网关真实开销）。
 
 用法: python scripts/loadtest.py [非流式总数] [非流式并发] [流式总数] [流式并发]
+
+说明：每个 worker 线程复用同一条 HTTP 连接（keep-alive），避免 TCP 握手/Nagle 开销污染测量；
+对比「每请求新建连接」的 urllib 方案，本脚本反映的是网关本身的延迟与吞吐。
 """
 import concurrent.futures
 import hashlib
 import hmac
+import http.client
 import json
 import statistics
 import sys
 import time
-import urllib.error
-import urllib.request
 import uuid
 
-BASE = "http://localhost:18080/v1/chat/completions"
+HOST = "localhost"
+PORT = 18080
+PATH = "/v1/chat/completions"
 SECRET = "demo-secret-please-change"
 APP_KEY = "demo-app"
 
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-
-def sign(ts, nonce):
-    return hmac.new(SECRET.encode(),
-                    ("POST\n/v1/chat/completions\n" + ts + "\n" + nonce).encode(),
-                    hashlib.sha256).hexdigest()
-
-
-def do_request(stream=False):
+def _send(conn, stream):
     ts = str(int(time.time()))
     nonce = uuid.uuid4().hex
+    sig = hmac.new(SECRET.encode(),
+                   ("POST\n" + PATH + "\n" + ts + "\n" + nonce).encode(),
+                   hashlib.sha256).hexdigest()
     body = {"model": "mock-model", "messages": [{"role": "user", "content": "hello"}]}
     if stream:
         body["stream"] = True
@@ -38,47 +37,60 @@ def do_request(stream=False):
         "X-App-Key": APP_KEY,
         "X-Timestamp": ts,
         "X-Nonce": nonce,
-        "X-Signature": sign(ts, nonce),
+        "X-Signature": sig,
         "X-Route-Tag": "mock",
     }
-    req = urllib.request.Request(BASE, data=json.dumps(body).encode("utf-8"), headers=headers)
     start = time.perf_counter()
+    conn.request("POST", PATH, body=json.dumps(body).encode("utf-8"), headers=headers)
+    resp = conn.getresponse()
+    raw = resp.read()
+    latency = (time.perf_counter() - start) * 1000
+    frames = raw.decode("utf-8").count("data:") if stream else 0
+    return resp.status, latency, frames
+
+
+def worker(requests, stream):
+    conn = http.client.HTTPConnection(HOST, PORT)
+    latencies = []
+    ok = 0
+    frames = []
     try:
-        resp = opener.open(req, timeout=60)
-        raw = resp.read()
-        latency = time.perf_counter() - start
-        frames = raw.decode("utf-8").count("data:") if stream else 0
-        return resp.status, latency, frames
-    except urllib.error.HTTPError as e:
-        return e.code, time.perf_counter() - start, 0
-    except Exception as e:
-        return type(e).__name__, time.perf_counter() - start, 0
+        for _ in range(requests):
+            status, latency, frame = _send(conn, stream)
+            if status == 200:
+                ok += 1
+                latencies.append(latency)
+                frames.append(frame)
+    finally:
+        conn.close()
+    return ok, latencies, frames
 
 
 def percentile(values, p):
     if not values:
         return 0
     values = sorted(values)
-    idx = min(int(len(values) * p), len(values) - 1)
-    return values[idx]
+    return values[min(int(len(values) * p), len(values) - 1)]
 
 
 def run(total, concurrency, stream):
+    per_worker = max(1, total // concurrency)
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
-        results = list(ex.map(lambda _: do_request(stream), range(total)))
-    latencies = [r[1] * 1000 for r in results if r[0] == 200]
-    ok = sum(1 for r in results if r[0] == 200)
+        results = list(ex.map(lambda _: worker(per_worker, stream), range(concurrency)))
+
+    ok = sum(r[0] for r in results)
+    latencies = [l for r in results for l in r[1]]
     report = {
-        "total": total,
+        "total": concurrency * per_worker,
         "ok": ok,
-        "errors": total - ok,
+        "errors": concurrency * per_worker - ok,
+        "avg_ms": round(statistics.mean(latencies), 2) if latencies else 0,
         "p50_ms": round(percentile(latencies, 0.5), 2),
         "p95_ms": round(percentile(latencies, 0.95), 2),
         "p99_ms": round(percentile(latencies, 0.99), 2),
-        "avg_ms": round(statistics.mean(latencies), 2) if latencies else 0,
     }
     if stream:
-        frames = [r[2] for r in results if r[0] == 200]
+        frames = [f for r in results for f in r[2]]
         report["avg_frames"] = round(statistics.mean(frames), 1) if frames else 0
     return report
 
@@ -89,7 +101,7 @@ if __name__ == "__main__":
     stream_total = int(sys.argv[3]) if len(sys.argv) > 3 else 100
     stream_conc = int(sys.argv[4]) if len(sys.argv) > 4 else 20
 
-    print(f"=== 非流式压测: {total} 请求 / {conc} 并发 ===")
+    print(f"=== 非流式压测(keep-alive): {total} 请求 / {conc} 并发 ===")
     print(json.dumps(run(total, conc, False), ensure_ascii=False, indent=2))
-    print(f"=== 流式压测: {stream_total} SSE / {stream_conc} 并发 ===")
+    print(f"=== 流式压测(keep-alive): {stream_total} SSE / {stream_conc} 并发 ===")
     print(json.dumps(run(stream_total, stream_conc, True), ensure_ascii=False, indent=2))
