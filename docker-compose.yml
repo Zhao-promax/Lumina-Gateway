@@ -126,8 +126,6 @@ services:
       # SW_AGENT_COLLECTOR_BACKEND_SERVICES: skywalking-oap:11800
     ports:
       - "8080:8080"
-    volumes:
-      # - ./skywalking-agent:/opt/skywalking:ro
     restart: unless-stopped
 
 volumes:
