@@ -9,6 +9,8 @@ import com.lumina.gateway.api.dto.ChunkChoice;
 import com.lumina.gateway.api.dto.ChunkDelta;
 import com.lumina.gateway.api.dto.Usage;
 import com.lumina.gateway.provider.spi.ModelProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -21,6 +23,8 @@ import java.util.List;
  * 无真实模型调用，返回固定响应；流式按固定节奏产出 chunk，用于并发压测 SSE 长连接链路。
  */
 public class MockProvider implements ModelProvider {
+
+    private static final Logger log = LoggerFactory.getLogger(MockProvider.class);
 
     private final int chunkCount;
     private final long chunkDelayMs;
@@ -57,6 +61,7 @@ public class MockProvider implements ModelProvider {
                         List.of(new ChunkChoice(0,
                                 new ChunkDelta(i == 0 ? "assistant" : null, "token-" + i),
                                 (i == chunkCount - 1) ? "stop" : null)),
-                        (i == chunkCount - 1) ? new Usage(10, chunkCount, 10 + chunkCount) : null));
+                        (i == chunkCount - 1) ? new Usage(10, chunkCount, 10 + chunkCount) : null))
+                .doOnCancel(() -> log.info("provider=mock downstream stream cancelled"));
     }
 }

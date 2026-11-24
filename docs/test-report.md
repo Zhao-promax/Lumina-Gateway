@@ -30,7 +30,8 @@
 | 含敏感词 | 400 | ✅ 400 `content_policy_violation` |
 | 正常内容（无 api-key） | 502 | ✅ 502（故障转移耗尽） |
 | 连发 15 次（限流 10/s） | 出现 429 | ✅ 前 11 次 503、后 4 次 429 |
-| Prometheus 指标 | 有 gateway_* | ✅ P50/P95/P99、requests、errors 均暴露 |
+| 客户端中途断连 | 下游请求取消 | ✅ `gateway_disconnects=1` + 下游 provider `doOnCancel` 日志 |
+| Prometheus 指标 | 有 gateway_* | ✅ P50/P95/P99、requests、errors、circuitbreaker.opens、budget.warnings 均暴露 |
 
 ## 三、并发压测（Mock 厂商，`scripts/loadtest.py`，keep-alive 连接复用）
 
@@ -70,6 +71,7 @@
 - SSE 长连接可承载 20+ 并发流式链路，分片与 `[DONE]` 结束符完整；
 - 尾延迟主要来自 JVM GC 与 Resilience4j 超时调度，后续可做 GC 调优进一步压降；
 - 审计日志已改为**异步独立线程池**（有界队列 + 溢出丢弃），不阻塞响应主链路，吞吐提升约 14%（1931→2200 req/s）；
+- 压测脚本支持采集 JVM 线程数/堆内存（`jvm.threads.live` / `jvm.memory.used`），压测前后输出快照，用于观察资源是否稳定、有无内存泄漏；
 - 压测中曾现 `nonce_replayed` 401，系脚本 `time.time_ns()` 在 Windows 分辨率不足产生重复 nonce，改 `uuid4` 后消除——反向验证防重放有效。
 
 ## 四、已知限制（未覆盖）

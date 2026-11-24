@@ -1,0 +1,25 @@
+{
+  "defaultTag": "default",
+  "downgradeEnabled": false,
+  "routes": [
+    {
+      "tag": "default",
+      "models": [
+        { "provider": "deepseek", "model": "deepseek-chat", "price": 0.002, "weight": 100 },
+        { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 0 }
+      ]
+    },
+    {
+      "tag": "qwen",
+      "models": [
+        { "provider": "qwen", "model": "qwen-plus", "price": 0.0008, "weight": 100 }
+      ]
+    },
+    {
+      "tag": "mock",
+      "models": [
+        { "provider": "mock", "model": "mock-model", "price": 0, "weight": 100 }
+      ]
+    }
+  ]
+}

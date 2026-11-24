@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "Lumina Gateway",
+    "description": "Lumina Gateway OpenAI 兼容接口测试集合。使用前在集合变量中配置 base_url / app_key / app_secret。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "app_key", "value": "demo-app" },
+    { "key": "app_secret", "value": "demo-secret-please-change" }
+  ],
+  "item": [
+    {
+      "name": "对话补全",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const path = '/v1/chat/completions';",
+              "const ts = Math.floor(Date.now() / 1000).toString();",
+              "const nonce = require('crypto').randomBytes(16).toString('hex');",
+              "const secret = pm.variables.get('app_secret');",
+              "const stringToSign = pm.request.method + '\\n' + path + '\\n' + ts + '\\n' + nonce;",
+              "const sig = CryptoJS.HmacSHA256(stringToSign, secret).toString(CryptoJS.enc.Hex);",
+              "pm.request.headers.upsert({ key: 'X-App-Key', value: pm.variables.get('app_key') });",
+              "pm.request.headers.upsert({ key: 'X-Timestamp', value: ts });",
+              "pm.request.headers.upsert({ key: 'X-Nonce', value: nonce });",
+              "pm.request.headers.upsert({ key: 'X-Signature', value: sig });"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "非流式补全",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Route-Tag", "value": "default", "disabled": true }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"temperature\":0,\"max_tokens\":100}"
+            },
+            "url": { "raw": "{{base_url}}/v1/chat/completions", "host": ["{{base_url}}"], "path": ["v1", "chat", "completions"] }
+          }
+        },
+        {
+          "name": "流式补全",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Route-Tag", "value": "mock", "disabled": true }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"stream\":true}"
+            },
+            "url": { "raw": "{{base_url}}/v1/chat/completions", "host": ["{{base_url}}"], "path": ["v1", "chat", "completions"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "健康检查",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/actuator/health", "host": ["{{base_url}}"], "path": ["actuator", "health"] }
+      }
+    },
+    {
+      "name": "Prometheus 指标",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{base_url}}/actuator/prometheus", "host": ["{{base_url}}"], "path": ["actuator", "prometheus"] }
+      }
+    }
+  ]
+}

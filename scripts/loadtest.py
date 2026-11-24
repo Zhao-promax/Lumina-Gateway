@@ -73,6 +73,26 @@ def percentile(values, p):
     return values[min(int(len(values) * p), len(values) - 1)]
 
 
+def jvm_metric(name):
+    """从 actuator 读取 JVM 指标（线程/内存），用于压测期间的资源监控。"""
+    try:
+        req = urllib.request.Request(f"http://{HOST}:{PORT}/actuator/metrics/{name}")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+            return data["measurements"][0]["value"]
+    except Exception:
+        return None
+
+
+def jvm_snapshot(label):
+    threads = jvm_metric("jvm.threads.live")
+    memory = jvm_metric("jvm.memory.used")
+    if threads is not None and memory is not None:
+        print(f"[{label}] JVM 线程: {threads}, 堆内存已用: {memory / 1024 / 1024:.1f} MB")
+    else:
+        print(f"[{label}] JVM 指标不可用")
+
+
 def run(total, concurrency, stream):
     per_worker = max(1, total // concurrency)
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as ex:
@@ -101,7 +121,9 @@ if __name__ == "__main__":
     stream_total = int(sys.argv[3]) if len(sys.argv) > 3 else 100
     stream_conc = int(sys.argv[4]) if len(sys.argv) > 4 else 20
 
+    jvm_snapshot("压测前")
     print(f"=== 非流式压测(keep-alive): {total} 请求 / {conc} 并发 ===")
     print(json.dumps(run(total, conc, False), ensure_ascii=False, indent=2))
     print(f"=== 流式压测(keep-alive): {stream_total} SSE / {stream_conc} 并发 ===")
     print(json.dumps(run(stream_total, stream_conc, True), ensure_ascii=False, indent=2))
+    jvm_snapshot("压测后")
