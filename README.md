@@ -87,6 +87,21 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 - **流式故障转移**：仅当「首字节产出前」失败才切换，已产出则保持原流
 - **降级**：开启 `downgrade-enabled` 后按价格升序选择候选
 
+## 进阶能力（需外部依赖，配置已就绪）
+
+以下能力代码已实现，配置与 docker-compose 已备好，部署对应中间件 + 打开开关即可启用：
+
+| 能力 | 启用开关 | 依赖 |
+|---|---|---|
+| **密钥加密存储** | 设置 `GATEWAY_MASTER_KEY`（32 字节 base64），配置值写 `ENC(base64密文)` | 无（`openssl rand -base64 32` 生成主密钥） |
+| **Nacos 全规则热更** | `gateway.nacos.enabled=true` | Nacos（已支持路由/熔断/限流/预算规则） |
+| **语义缓存 + RediSearch** | `gateway.cache.semantic-enabled=true` + `vector-backend=redis-search` | Embedding 服务 + Redis Stack |
+| **审计落库 MySQL** | `gateway.audit.mysql-enabled=true` + `mq-enabled=true` | MySQL + RabbitMQ |
+| **SkyWalking 全链路追踪** | 取消 docker-compose 中 gateway 的 `JAVA_TOOL_OPTIONS` 注释 + 挂载 agent | SkyWalking OAP（compose 已含） |
+
+密钥加密示例：`DEEPSEEK_API_KEY=ENC(加密后的base64)`，启动时网关用 `GATEWAY_MASTER_KEY` 自动解密。
+Nacos 配置现为完整规则集（routing/resilience/rateLimit/budget），见 `deploy/nacos-config-example.json`。
+
 ## 可观测性
 
 - **指标**：`/actuator/prometheus`（Prometheus 抓取），含请求量、P50/P95/P99 延迟、Token、缓存命中、断连取消、错误率

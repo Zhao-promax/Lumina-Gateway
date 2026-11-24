@@ -1,5 +1,7 @@
 package com.lumina.gateway.cache.embedding;
 
+import reactor.core.publisher.Mono;
+
 /**
  * Embedding 向量生成接口（语义缓存用，可插拔）。
  * <p>
@@ -8,9 +10,9 @@ package com.lumina.gateway.cache.embedding;
 public interface EmbeddingProvider {
 
     /**
-     * 将文本转为向量。
+     * 将文本转为向量（异步）。
      */
-    float[] embed(String text);
+    Mono<float[]> embed(String text);
 
     /**
      * 向量维度。

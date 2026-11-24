@@ -9,6 +9,9 @@ spring:
     timeout-per-shutdown-phase: 30s
   jackson:
     default-property-inclusion: non_null
+  autoconfigure:
+    # 审计 MySQL 为可选依赖，由 MysqlConfiguration 按需创建 DataSource
+    exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 
 management:
   endpoints:
@@ -91,14 +94,24 @@ gateway:
   cache:
     exact-enabled: true
     exact-ttl-seconds: 3600
-    semantic-enabled: false    # 需 EmbeddingProvider Bean + 可选 Redis Stack
+    semantic-enabled: false    # 需 Embedding 服务 + 可选 Redis Stack
     semantic-threshold: 0.9
+    vector-backend: "memory"   # memory | redis-search（redis-search 需 Redis Stack）
+    embedding:
+      base-url: "${EMBEDDING_BASE_URL:}"
+      api-key: "${EMBEDDING_API_KEY:}"
+      model: "${EMBEDDING_MODEL:}"
+      dimension: 1024
   moderation:
     enabled: true
     words: [ "违禁词A", "违禁词B" ]
   audit:
     mq-enabled: false           # true 时异步投递到 RabbitMQ（需部署 RabbitMQ）
     queue: "gateway.audit"
+    mysql-enabled: false        # true 时审计落库 MySQL（需部署 MySQL + 建表 schema.sql）
+    mysql-url: "${AUDIT_MYSQL_URL:jdbc:mysql://mysql:3306/lumina}"
+    mysql-user: "${AUDIT_MYSQL_USER:root}"
+    mysql-password: "${AUDIT_MYSQL_PASSWORD:}"
   nacos:
     enabled: false             # 启用后从 Nacos 热更路由规则
     server-addr: "localhost:8848"

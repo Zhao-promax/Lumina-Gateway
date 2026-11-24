@@ -519,6 +519,8 @@ public class GatewayProperties {
         private long exactTtlSeconds = 3600;
         private boolean semanticEnabled = false;
         private double semanticThreshold = 0.9;
+        private String vectorBackend = "memory";   // memory | redis-search
+        private Embedding embedding = new Embedding();
 
         public boolean isExactEnabled() {
             return exactEnabled;
@@ -551,6 +553,61 @@ public class GatewayProperties {
         public void setSemanticThreshold(double semanticThreshold) {
             this.semanticThreshold = semanticThreshold;
         }
+
+        public String getVectorBackend() {
+            return vectorBackend;
+        }
+
+        public void setVectorBackend(String vectorBackend) {
+            this.vectorBackend = vectorBackend;
+        }
+
+        public Embedding getEmbedding() {
+            return embedding;
+        }
+
+        public void setEmbedding(Embedding embedding) {
+            this.embedding = embedding;
+        }
+    }
+
+    public static class Embedding {
+        private String baseUrl = "";
+        private String apiKey = "";
+        private String model = "";
+        private int dimension = 1024;
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public int getDimension() {
+            return dimension;
+        }
+
+        public void setDimension(int dimension) {
+            this.dimension = dimension;
+        }
     }
 
     // ===== 内容风控 =====
@@ -581,6 +638,10 @@ public class GatewayProperties {
     public static class Audit {
         private boolean mqEnabled = false;
         private String queue = "gateway.audit";
+        private boolean mysqlEnabled = false;
+        private String mysqlUrl = "";
+        private String mysqlUser = "";
+        private String mysqlPassword = "";
 
         public boolean isMqEnabled() {
             return mqEnabled;
@@ -596,6 +657,38 @@ public class GatewayProperties {
 
         public void setQueue(String queue) {
             this.queue = queue;
+        }
+
+        public boolean isMysqlEnabled() {
+            return mysqlEnabled;
+        }
+
+        public void setMysqlEnabled(boolean mysqlEnabled) {
+            this.mysqlEnabled = mysqlEnabled;
+        }
+
+        public String getMysqlUrl() {
+            return mysqlUrl;
+        }
+
+        public void setMysqlUrl(String mysqlUrl) {
+            this.mysqlUrl = mysqlUrl;
+        }
+
+        public String getMysqlUser() {
+            return mysqlUser;
+        }
+
+        public void setMysqlUser(String mysqlUser) {
+            this.mysqlUser = mysqlUser;
+        }
+
+        public String getMysqlPassword() {
+            return mysqlPassword;
+        }
+
+        public void setMysqlPassword(String mysqlPassword) {
+            this.mysqlPassword = mysqlPassword;
         }
     }
 

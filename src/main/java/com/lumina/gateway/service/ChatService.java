@@ -148,18 +148,17 @@ public class ChatService {
         if (semanticCache.isPresent() && semanticCache.get().isEnabled()) {
             SemanticCacheService sc = semanticCache.get();
             String query = lastUserContent(request);
-            Optional<ChatResponse> hit = sc.find(query, model);
-            if (hit.isPresent()) {
-                log.info("semantic cache hit, model={}", model);
-                observer.recordCache("semantic", true);
-                return settle(tenant, appKey, -estimate).thenReturn(hit.get());
-            }
-            observer.recordCache("semantic", false);
-            return failoverMono(candidates, request)
-                    .flatMap(resp -> {
-                        sc.put(query, model, resp);
-                        return settleUsage(resp, estimate, tenant, appKey);
-                    });
+            return sc.find(query, model).flatMap(hit -> {
+                if (hit.isPresent()) {
+                    log.info("semantic cache hit, model={}", model);
+                    observer.recordCache("semantic", true);
+                    return settle(tenant, appKey, -estimate).thenReturn(hit.get());
+                }
+                observer.recordCache("semantic", false);
+                return failoverMono(candidates, request)
+                        .flatMap(resp -> sc.put(query, model, resp)
+                                .then(settleUsage(resp, estimate, tenant, appKey)));
+            });
         }
         // 3) 无缓存
         return failoverMono(candidates, request)
