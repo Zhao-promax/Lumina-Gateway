@@ -48,15 +48,15 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 10
-      start_period: 30s
+      start_period: 60s
     restart: unless-stopped
 
   # 审计落库 MySQL（gateway.audit.mysql-enabled=true 时启用）
   mysql:
     image: mysql:8
-    container_name: mysql
+    container_name: lumina-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-lumina}
       MYSQL_DATABASE: lumina
@@ -72,7 +72,30 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # 全链路追踪 SkyWalking（agent 接入见 gateway 注释）
+  # 指标监控：Prometheus + Grafana
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana-datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # 全链路追踪 SkyWalking（agent 已打入 gateway 镜像）
   skywalking-oap:
     image: apache/skywalking-oap-server:9.7.0
     container_name: skywalking-oap

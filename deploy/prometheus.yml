@@ -1,0 +1,10 @@
+# Prometheus 抓取配置（挂载到 prometheus 容器的 /etc/prometheus/prometheus.yml）
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'lumina-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['gateway:8080']
