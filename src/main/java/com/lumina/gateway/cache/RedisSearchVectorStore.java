@@ -16,8 +16,8 @@ import java.util.Optional;
  * RediSearch 向量存储（需 Redis Stack，含 RediSearch 模块）。
  * <p>
  * 使用 FT.CREATE 建 HNSW 向量索引，FT.SEARCH 做 KNN 检索。
+ * 索引在首次写入时按实际向量维度创建（无需预知 embedding 维度）。
  * 检索为阻塞调用，offload 到 boundedElastic 线程，避免阻塞 Netty 事件循环。
- * 注意：需 Redis Stack（redis/redis-stack-server 镜像）才能运行。
  */
 public class RedisSearchVectorStore implements VectorStore {
 
@@ -25,42 +25,20 @@ public class RedisSearchVectorStore implements VectorStore {
 
     private final StringRedisTemplate redis;
     private final String index;
-    private final int dimension;
     private final String keyPrefix;
 
-    public RedisSearchVectorStore(StringRedisTemplate redis, String index, int dimension, String keyPrefix) {
+    private volatile boolean indexCreated = false;
+
+    public RedisSearchVectorStore(StringRedisTemplate redis, String index, String keyPrefix) {
         this.redis = redis;
         this.index = index;
-        this.dimension = dimension;
         this.keyPrefix = keyPrefix;
-        createIndex();
-    }
-
-    private void createIndex() {
-        // FT.CREATE idx ON HASH PREFIX 1 "sem:" SCHEMA vector VECTOR HNSW 6 TYPE FLOAT32 DIM 1024 DISTANCE_METRIC COSINE
-        String command = "FT.CREATE";
-        byte[][] args = new byte[][]{
-                index.getBytes(),
-                "ON".getBytes(), "HASH".getBytes(),
-                "PREFIX".getBytes(), "1".getBytes(), keyPrefix.getBytes(),
-                "SCHEMA".getBytes(),
-                "vector".getBytes(), "VECTOR".getBytes(), "HNSW".getBytes(), "6".getBytes(),
-                "TYPE".getBytes(), "FLOAT32".getBytes(),
-                "DIM".getBytes(), String.valueOf(dimension).getBytes(),
-                "DISTANCE_METRIC".getBytes(), "COSINE".getBytes()
-        };
-        try {
-            redis.execute((RedisCallback<Object>) connection -> connection.execute(command, args));
-            log.info("redisearch index {} created", index);
-        } catch (Exception e) {
-            // 索引已存在等错误可忽略
-            log.debug("redisearch index {} create: {}", index, e.getMessage());
-        }
     }
 
     @Override
     public Mono<Void> put(String key, float[] vector, String value) {
         return Mono.fromCallable(() -> {
+            ensureIndex(vector.length);
             redis.opsForHash().put(key, "vector", floatsToBytes(vector));
             redis.opsForHash().put(key, "value", value);
             return null;
@@ -71,6 +49,9 @@ public class RedisSearchVectorStore implements VectorStore {
     @SuppressWarnings("unchecked")
     public Mono<Optional<String>> find(String model, float[] queryVector, double threshold) {
         return Mono.fromCallable(() -> {
+            if (!indexCreated) {
+                return Optional.<String>empty();
+            }
             // FT.SEARCH idx "*=>[KNN 1 @vector $vec AS score]" PARAMS 2 vec <binary> DIALECT 2 RETURN 1 value
             String query = "*=>[KNN 1 @vector $vec AS score]";
             String command = "FT.SEARCH";
@@ -87,9 +68,44 @@ public class RedisSearchVectorStore implements VectorStore {
         }).subscribeOn(Schedulers.boundedElastic());
     }
 
+    private void ensureIndex(int dimension) {
+        if (indexCreated) {
+            return;
+        }
+        synchronized (this) {
+            if (indexCreated) {
+                return;
+            }
+            createIndex(dimension);
+            indexCreated = true;
+        }
+    }
+
+    private void createIndex(int dimension) {
+        // FT.CREATE idx ON HASH PREFIX 1 "sem:" SCHEMA vector VECTOR HNSW 6 TYPE FLOAT32 DIM 1024 DISTANCE_METRIC COSINE
+        String command = "FT.CREATE";
+        byte[][] args = new byte[][]{
+                index.getBytes(),
+                "ON".getBytes(), "HASH".getBytes(),
+                "PREFIX".getBytes(), "1".getBytes(), keyPrefix.getBytes(),
+                "SCHEMA".getBytes(),
+                "vector".getBytes(), "VECTOR".getBytes(), "HNSW".getBytes(), "6".getBytes(),
+                "TYPE".getBytes(), "FLOAT32".getBytes(),
+                "DIM".getBytes(), String.valueOf(dimension).getBytes(),
+                "DISTANCE_METRIC".getBytes(), "COSINE".getBytes()
+        };
+        try {
+            redis.execute((RedisCallback<Object>) connection -> connection.execute(command, args));
+            log.info("redisearch index {} created with dim {}", index, dimension);
+        } catch (Exception e) {
+            // 索引已存在等错误可忽略
+            log.debug("redisearch index {} create: {}", index, e.getMessage());
+        }
+    }
+
     /**
      * FT.SEARCH 返回扁平数组：[count, key1, [field, value, ...], key2, [...], ...]
-     * 此处取第一个结果的 value 字段；score 通过 AS score 附加，需在结果中识别。
+     * 此处取第一个结果的 value 字段。
      */
     private Optional<String> parseSearchResult(List<Object> result, double threshold) {
         if (result == null || result.size() < 3) {
@@ -100,7 +116,6 @@ public class RedisSearchVectorStore implements VectorStore {
         if (count == 0) {
             return Optional.empty();
         }
-        // 简化解析：结果[1] 为 key，结果[2] 为 [field, value, ...] 或 [value, json]
         try {
             Object fieldsObj = result.get(2);
             if (fieldsObj instanceof List<?> fields) {

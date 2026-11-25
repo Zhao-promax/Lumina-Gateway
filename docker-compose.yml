@@ -139,10 +139,10 @@ services:
       AUDIT_MYSQL_URL: ${AUDIT_MYSQL_URL:-jdbc:mysql://mysql:3306/lumina}
       AUDIT_MYSQL_USER: ${AUDIT_MYSQL_USER:-root}
       AUDIT_MYSQL_PASSWORD: ${AUDIT_MYSQL_PASSWORD:-lumina}
-      # 语义缓存 Embedding
-      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
-      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      # 语义缓存 Embedding（复用 DeepSeek Key）
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.deepseek.com/v1}
+      EMBEDDING_API_KEY: ${DEEPSEEK_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-deepseek-embed}
       # 功能开关（设为 true 启用对应能力）
       GATEWAY_AUDIT_MYSQL_ENABLED: ${AUDIT_MYSQL_ENABLED:-false}
       GATEWAY_CACHE_SEMANTIC_ENABLED: ${SEMANTIC_ENABLED:-false}

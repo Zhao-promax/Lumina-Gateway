@@ -28,8 +28,7 @@ public class CacheConfiguration {
         if ("redis-search".equals(properties.getCache().getVectorBackend())) {
             StringRedisTemplate template = redis.getIfAvailable();
             if (template != null) {
-                return new RedisSearchVectorStore(template, "semantic_idx",
-                        properties.getCache().getEmbedding().getDimension(), "sem:");
+                return new RedisSearchVectorStore(template, "semantic_idx", "sem:");
             }
         }
         return new InMemoryVectorStore();
