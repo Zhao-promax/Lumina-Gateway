@@ -143,6 +143,10 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      # 功能开关（设为 true 启用对应能力）
+      GATEWAY_AUDIT_MYSQL_ENABLED: ${AUDIT_MYSQL_ENABLED:-false}
+      GATEWAY_CACHE_SEMANTIC_ENABLED: ${SEMANTIC_ENABLED:-false}
+      GATEWAY_CACHE_VECTOR_BACKEND: ${VECTOR_BACKEND:-memory}
     ports:
       - "8080:8080"
     restart: unless-stopped
