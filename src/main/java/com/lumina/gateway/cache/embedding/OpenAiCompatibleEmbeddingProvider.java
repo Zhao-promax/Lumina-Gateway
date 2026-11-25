@@ -4,6 +4,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +43,7 @@ public class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvider {
                 .bodyValue(Map.of("model", model, "input", text))
                 .retrieve()
                 .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(10))
                 .map(resp -> {
                     List<Map<String, Object>> data = (List<Map<String, Object>>) resp.get("data");
                     List<Number> embedding = (List<Number>) data.get(0).get("embedding");

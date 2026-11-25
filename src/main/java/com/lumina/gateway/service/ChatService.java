@@ -144,21 +144,27 @@ public class ChatService {
                         return settleUsage(resp, estimate, tenant, appKey);
                     });
         }
-        // 2) 语义缓存（可选，非流式）
+        // 2) 语义缓存（可选，非流式；失败自动回退到直接调模型，不影响主链路）
         if (semanticCache.isPresent() && semanticCache.get().isEnabled()) {
             SemanticCacheService sc = semanticCache.get();
             String query = lastUserContent(request);
-            return sc.find(query, model).flatMap(hit -> {
-                if (hit.isPresent()) {
-                    log.info("semantic cache hit, model={}", model);
-                    observer.recordCache("semantic", true);
-                    return settle(tenant, appKey, -estimate).thenReturn(hit.get());
-                }
-                observer.recordCache("semantic", false);
-                return failoverMono(candidates, request)
-                        .flatMap(resp -> sc.put(query, model, resp)
-                                .then(settleUsage(resp, estimate, tenant, appKey)));
-            });
+            return sc.find(query, model)
+                    .onErrorResume(e -> {
+                        log.warn("semantic cache find failed, fallback to provider: {}", e.getMessage());
+                        return Mono.just(Optional.empty());
+                    })
+                    .flatMap(hit -> {
+                        if (hit.isPresent()) {
+                            log.info("semantic cache hit, model={}", model);
+                            observer.recordCache("semantic", true);
+                            return settle(tenant, appKey, -estimate).thenReturn(hit.get());
+                        }
+                        observer.recordCache("semantic", false);
+                        return failoverMono(candidates, request)
+                                .flatMap(resp -> sc.put(query, model, resp)
+                                        .onErrorResume(e -> Mono.empty())
+                                        .then(settleUsage(resp, estimate, tenant, appKey)));
+                    });
         }
         // 3) 无缓存
         return failoverMono(candidates, request)
